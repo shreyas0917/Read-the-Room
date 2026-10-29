@@ -27,6 +27,7 @@ Open the URL in a normal window and a private window (or on your phone on the sa
 | `npm test` | Unit tests (engine, scoring, Echo Rounds, redaction, protocol) |
 | `npm run test:integration` | Starts the app (2× faster timers via `CLOUDFLARE_ENV=test`) and plays real multi-client games over WebSockets, including every Echo mode and full runtime restarts mid-game and mid-Echo |
 | `npm run test:e2e` | Playwright: a full 2-device game against the production build, plus a 4-device "Who said it?" game (consent, privacy, keyboard, reconnects) against a local seedable fixture server |
+| `node tests/upgrade/v1-to-v2.mjs <oldCommit> <scratchDir>` | Real storage-upgrade test: runs the old commit in a temporary worktree, saves a mid-game room, hands its Durable Object storage to `HEAD`, resumes every player and plays on |
 | `npm run deploy` | Build and deploy to Cloudflare |
 
 ### Test-only Wrangler environments
