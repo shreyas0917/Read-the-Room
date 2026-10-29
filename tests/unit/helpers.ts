@@ -36,3 +36,23 @@ export function playRound(s: RoomState, answers: number[], predictions: number[]
   predictions.forEach((v, i) => (s = must(s, { type: "predict", playerId: pid(i + 1), value: v }, now)));
   return s;
 }
+
+/** Everyone in the current Echo Round makes the first legal pick. */
+export function echoAll(s: RoomState, now = T0): RoomState {
+  const r = s.current;
+  if (s.phase !== "echo" || !r?.echo) throw new Error(`expected echo phase, got ${s.phase}`);
+  for (const id of r.participants) {
+    let choice = 0;
+    if (r.echo.kind === "who" && r.echo.options[0] === id) choice = 1;
+    s = must(s, { type: "echo", playerId: id, choice }, now);
+  }
+  return s;
+}
+
+/**
+ * Plays the current round to its reveal: regular rounds use the given values
+ * (players 1..n), Echo Rounds use echoAll.
+ */
+export function playAny(s: RoomState, answers: number[], predictions: number[], now = T0): RoomState {
+  return s.phase === "echo" ? echoAll(s, now) : playRound(s, answers, predictions, now);
+}

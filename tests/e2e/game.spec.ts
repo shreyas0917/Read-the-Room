@@ -10,6 +10,11 @@ async function answer(page: Page, value: number) {
   await page.getByRole("button", { name: /^Lock in/ }).click();
 }
 
+async function echoPick(page: Page) {
+  await page.locator(".options .option:not([disabled])").first().click();
+  await page.getByRole("button", { name: "Lock it in" }).click();
+}
+
 async function predict(page: Page, value: number) {
   await page.getByLabel("Predicted average").fill(String(value));
   await page.getByRole("button", { name: /^Predict/ }).click();
@@ -41,50 +46,91 @@ test("two devices create, join and play a full game", async ({ browser }) => {
   await A.screenshot({ path: `${SHOTS}/02-lobby-desktop.png`, fullPage: true });
   await B.screenshot({ path: `${SHOTS}/02-lobby-phone.png`, fullPage: true });
 
+  // Consent for "Who said it?" is per player, off by default, and others only see a count.
+  await expect(A.getByText("0 of 2 players are on the record")).toBeVisible();
+  const sw = B.getByRole("switch");
+  await expect(sw).toHaveAttribute("aria-checked", "false");
+  await sw.click();
+  await expect(sw).toHaveAttribute("aria-checked", "true");
+  await expect(A.getByText("1 of 2 players are on the record")).toBeVisible();
+  await expect(A.getByRole("switch")).toHaveAttribute("aria-checked", "false");
+
   await A.getByRole("radio", { name: "6" }).click();
   await expect(B.getByText(/6 rounds/)).toBeVisible();
   await A.getByRole("button", { name: /Start game/ }).click();
 
-  const plan = [
-    [3, 7, 5, 5],
-    [8, 9, 8.5, 8],
-    [1, 10, 4, 6],
-    [6, 6, 6, 6.2],
-    [2, 4, 3, 3.5],
-    [5, 9, 7, 6],
-  ] as const;
+  // Rounds 3 and 6 are Echo Rounds.
+  const plan: Record<number, readonly [number, number, number, number]> = {
+    1: [3, 7, 5, 5],
+    2: [8, 9, 8.5, 8],
+    4: [1, 10, 4, 6],
+    5: [2, 4, 3, 3.5],
+  };
 
-  for (let r = 0; r < plan.length; r++) {
-    const [a, b, pa, pb] = plan[r]!;
-    await expect(A.getByText(`Round ${r + 1} of 6`)).toBeVisible();
-    await expect(B.getByText(`Round ${r + 1} of 6`)).toBeVisible();
-    // Both devices show the same prompt.
-    await expect(B.locator(".prompt__text")).toHaveText((await A.locator(".prompt__text").textContent()) ?? "");
-    if (r === 0) await B.screenshot({ path: `${SHOTS}/03-answer-phone.png`, fullPage: true });
+  for (let round = 1; round <= 6; round++) {
+    await expect(A.getByText(`Round ${round} of 6`)).toBeVisible();
+    await expect(B.getByText(`Round ${round} of 6`)).toBeVisible();
 
-    await answer(A, a);
-    await expect(A.getByText("Locked in. Nobody else can see this.")).toBeVisible();
-    await expect(B.getByText("1/2 locked in")).toBeVisible();
+    if (round % 3 === 0) {
+      const ask = A.locator(".echo-q__ask");
+      await expect(ask).toBeVisible();
+      await expect(B.locator(".echo-q__ask")).toHaveText((await ask.textContent()) ?? "");
+      if (round === 3) {
+        await expect(A.getByText("Echo Round", { exact: false }).first()).toBeVisible();
+        await B.screenshot({ path: `${SHOTS}/07-echo-phone.png`, fullPage: true });
+        await A.screenshot({ path: `${SHOTS}/07-echo-desktop.png`, fullPage: true });
+      }
+      await echoPick(A);
+      await expect(A.getByText("Locked in.", { exact: true })).toBeVisible();
+      await expect(B.getByText("1/2 locked in")).toBeVisible();
+      if (round === 3) {
+        // Refresh during an Echo Round: same question comes back.
+        const before = await B.locator(".echo-q__ask").textContent();
+        await B.reload();
+        await expect(B.locator(".echo-q__ask")).toHaveText(before ?? "");
+      }
+      await echoPick(B);
+      await expect(A.locator(".reveal")).toBeVisible();
+      await expect(B.locator(".reveal")).toHaveText((await A.locator(".reveal").textContent()) ?? "");
+      if (round === 3) {
+        await A.waitForTimeout(900);
+        await B.screenshot({ path: `${SHOTS}/08-echo-reveal-phone.png`, fullPage: true });
+        await A.screenshot({ path: `${SHOTS}/08-echo-reveal-desktop.png`, fullPage: true });
+      }
+    } else {
+      const [a, b, pa, pb] = plan[round]!;
+      // Both devices show the same prompt.
+      await expect(B.locator(".prompt__text")).toHaveText((await A.locator(".prompt__text").textContent()) ?? "");
+      if (round === 1) {
+        await expect(B.getByText("On the record.")).toBeVisible(); // B opted in
+        await expect(A.getByText("Secret & anonymous.")).toBeVisible();
+        await B.screenshot({ path: `${SHOTS}/03-answer-phone.png`, fullPage: true });
+      }
 
-    if (r === 2) {
-      // Refresh mid-round on the phone: must come back to the same seat.
-      await B.reload();
-      await expect(B.getByText(`Round ${r + 1} of 6`)).toBeVisible();
-    }
-    await answer(B, b);
+      await answer(A, a);
+      await expect(A.getByText("Locked in. Nobody else can see this.")).toBeVisible();
+      await expect(B.getByText("1/2 locked in")).toBeVisible();
 
-    await expect(A.getByText("What's the room's average?")).toBeVisible();
-    if (r === 0) await B.screenshot({ path: `${SHOTS}/04-predict-phone.png`, fullPage: true });
-    await predict(A, pa);
-    await predict(B, pb);
+      if (round === 2) {
+        // Refresh mid-round on the phone: must come back to the same seat.
+        await B.reload();
+        await expect(B.getByText(`Round ${round} of 6`)).toBeVisible();
+      }
+      await answer(B, b);
 
-    const avg = ((a + b) / 2).toFixed(1);
-    await expect(A.locator(".reveal__title")).toContainText(avg);
-    await expect(B.locator(".reveal__title")).toContainText(avg);
-    if (r === 0) {
-      await A.waitForTimeout(900); // let the dot animation settle for the screenshot
-      await A.screenshot({ path: `${SHOTS}/05-reveal-desktop.png`, fullPage: true });
-      await B.screenshot({ path: `${SHOTS}/05-reveal-phone.png`, fullPage: true });
+      await expect(A.getByText("What's the room's average?")).toBeVisible();
+      if (round === 1) await B.screenshot({ path: `${SHOTS}/04-predict-phone.png`, fullPage: true });
+      await predict(A, pa);
+      await predict(B, pb);
+
+      const avg = ((a + b) / 2).toFixed(1);
+      await expect(A.locator(".reveal__title")).toContainText(avg);
+      await expect(B.locator(".reveal__title")).toContainText(avg);
+      if (round === 1) {
+        await A.waitForTimeout(900); // let the dot animation settle for the screenshot
+        await A.screenshot({ path: `${SHOTS}/05-reveal-desktop.png`, fullPage: true });
+        await B.screenshot({ path: `${SHOTS}/05-reveal-phone.png`, fullPage: true });
+      }
     }
     // Guest can't advance; host can.
     await expect(B.getByRole("button", { name: /Next round|See final results/ })).toHaveCount(0);

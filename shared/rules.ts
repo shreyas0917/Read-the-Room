@@ -17,6 +17,8 @@ export const DURATIONS = {
   answer: 20_000,
   predict: 20_000,
   reveal: 12_000,
+  echo: 20_000,
+  echoReveal: 12_000,
 } as const;
 
 /** Disconnected players are removed from the lobby / final screen after this. */
@@ -38,3 +40,19 @@ export const WILDCARD_MIN_DISTANCE = 2;
 export const WILDCARD_BONUS = 25;
 /** Tolerance for floating-point comparisons on thresholds and ties. */
 export const EPSILON = 1e-9;
+
+// Echo Rounds (docs/ECHO_ROUNDS.md)
+/** Round numbers divisible by this are Echo Rounds when a challenge is eligible. */
+export const ECHO_EVERY = 3;
+export const ECHO_EXACT = 100;
+/** Higher or Lower: points for being off by exactly one. */
+export const ECHO_NEAR = 50;
+export const ECHO_CORRECT = 100;
+/** Room Pattern: the winning prompt must beat the runner-up by at least this. */
+export const PATTERN_MARGIN = 0.1;
+/** Who Said It: the source round needs at least this many answers. */
+export const WHO_MIN_ANSWERS = 3;
+export const WHO_FOOLED_BONUS = 25;
+export const WHO_FOOLED_MAX = 100;
+/** Upper bound for any echo choice on the wire (options are at most MAX_PLAYERS). */
+export const ECHO_CHOICE_MAX = 16;

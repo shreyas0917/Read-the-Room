@@ -70,6 +70,8 @@ export function Lobby({ view, send }: { view: ClientView; send: (m: ClientMessag
 
       <Rules />
 
+      <Consent view={view} send={send} />
+
       <section className="card host-panel">
         {isHost ? (
           <>
@@ -103,6 +105,40 @@ export function Lobby({ view, send }: { view: ClientView; send: (m: ClientMessag
   );
 }
 
+function Consent({ view, send }: { view: ClientView; send: (m: ClientMessage) => void }) {
+  const on = !!view.you?.onRecord;
+  const seated = view.players.length;
+  return (
+    <section className="card consent" aria-labelledby="consent-h">
+      <div className="row-between">
+        <h2 className="h2" id="consent-h">
+          Who said it?
+        </h2>
+        <button
+          role="switch"
+          aria-checked={on}
+          aria-labelledby="consent-h consent-state"
+          className={`switch${on ? " is-on" : ""}`}
+          onClick={() => send({ t: "consent", value: !on })}
+        >
+          <span className="switch__knob" />
+          <span id="consent-state" className="switch__text">
+            {on ? "On" : "Off"}
+          </span>
+        </button>
+      </div>
+      <p className="muted small">
+        Optional Echo Round, <b>off by default</b>. Turn it on and one of your answers this game may be shown{" "}
+        <b>with your name</b>, and the room guesses it was you. Only you can change this, and only in the lobby.
+      </p>
+      <p className="small consent__count">
+        {view.onRecordCount} of {seated} {seated === 1 ? "player is" : "players are"} on the record
+        {seated < 3 && <span className="muted"> · needs 3+ players to come up</span>}
+      </p>
+    </section>
+  );
+}
+
 export function Rules() {
   return (
     <section className="card rules" aria-labelledby="rules-h">
@@ -128,6 +164,12 @@ export function Rules() {
           <div>
             <b>Score.</b> Up to 100 points for a close guess, <b>+50 Bullseye</b> within 0.3. The one answer furthest
             from the average (by 2+) is named the <b>Wildcard</b> and earns +25.
+          </div>
+        </li>
+        <li>
+          <span className="rules__n">⟲</span>
+          <div>
+            <b>Echo Rounds.</b> Every third round asks about what the room <i>already</i> answered. Remember the dots.
           </div>
         </li>
       </ol>

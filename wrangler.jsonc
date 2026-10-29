@@ -14,12 +14,13 @@
   "vars": { "TIMER_SCALE": "1" },
   "observability": { "enabled": true },
   "env": {
-    // Fast timers for automated integration tests only (CLOUDFLARE_ENV=test).
+    // Faster timers for automated integration tests only (CLOUDFLARE_ENV=test).
+    // 0.5 keeps a 10 s Echo phase, long enough to restart the runtime inside it.
     "test": {
       "durable_objects": {
         "bindings": [{ "name": "ROOMS", "class_name": "Room" }]
       },
-      "vars": { "TIMER_SCALE": "0.1" }
+      "vars": { "TIMER_SCALE": "0.5" }
     }
   }
 }

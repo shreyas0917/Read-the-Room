@@ -70,7 +70,7 @@ describe("scoreRound", () => {
 
 describe("rankPlayers", () => {
   const P = (id: string, seat: number, score: number, bullseyes = 0): Player => ({
-    id, name: id, avatar: 0, seat, role: "player", connected: true, disconnectedAt: null, score, bullseyes, wildcards: 0,
+    id, name: id, avatar: 0, seat, role: "player", connected: true, disconnectedAt: null, score, bullseyes, wildcards: 0, onRecord: false,
   });
   it("breaks score ties by bullseyes, then shares rank", () => {
     const r = rankPlayers([P("a", 0, 300, 1), P("b", 1, 300, 2), P("c", 2, 300, 1), P("d", 3, 100)]);

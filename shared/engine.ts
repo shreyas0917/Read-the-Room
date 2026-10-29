@@ -4,19 +4,23 @@
 // result and broadcasts redacted views.
 //
 // State machine:
-//   lobby ──start──▶ answer ──▶ predict ──▶ reveal ──▶ answer … ──▶ final
-//                       └─(<2 answers)────────▲              final ──play_again──▶ lobby
+//   lobby ──start──▶ answer ──▶ predict ──▶ reveal ──▶ (next round) … ──▶ final
+//                       └─(<2 answers)────────▲
+//   every 3rd round, when eligible:  echo ──▶ echo_reveal ──▶ (next round)
+//   final ──play_again──▶ lobby
 // A phase ends at its deadline, or early once every *connected* participant
 // has submitted. Disconnected players never block a phase.
 
 import type { Player, RoomState, RoundRecord, ErrorCode, Phase } from "./protocol";
 import { isValidAnswer, isValidPrediction, normalizeName } from "./protocol";
 import { PROMPTS } from "./prompts";
+import { generateEcho, isValidEchoChoice } from "./echo";
 import { mixSeed, mulberry32, shuffle } from "./rng";
 import {
   ABANDON_MS,
   DEFAULT_ROUNDS,
   DURATIONS,
+  ECHO_EVERY,
   HOST_GRACE_MS,
   LOBBY_GRACE_MS,
   MAX_PLAYERS,
@@ -25,7 +29,7 @@ import {
   ROUND_OPTIONS,
   type RoundCount,
 } from "./rules";
-import { scoreRound } from "./scoring";
+import { scoreEcho, scoreRound, ZERO_SCORE } from "./scoring";
 
 export type EngineAction =
   | { type: "join"; playerId: string; name: string }
@@ -36,6 +40,8 @@ export type EngineAction =
   | { type: "start"; playerId: string }
   | { type: "answer"; playerId: string; value: number }
   | { type: "predict"; playerId: string; value: number }
+  | { type: "echo"; playerId: string; choice: number }
+  | { type: "consent"; playerId: string; value: boolean }
   | { type: "next"; playerId: string }
   | { type: "play_again"; playerId: string }
   | { type: "tick" };
@@ -46,7 +52,7 @@ export const AVATAR_COUNT = 16;
 
 export function createRoom(code: string, seed: number, now: number, timerScale = 1): RoomState {
   return {
-    v: 1,
+    v: 2,
     code,
     createdAt: now,
     lastActivity: now,
@@ -68,7 +74,8 @@ export function createRoom(code: string, seed: number, now: number, timerScale =
   };
 }
 
-export const IN_GAME: readonly Phase[] = ["answer", "predict", "reveal"];
+export const IN_GAME: readonly Phase[] = ["answer", "predict", "reveal", "echo", "echo_reveal"];
+const COLLECTING: readonly Phase[] = ["answer", "predict", "echo"];
 export const isInGame = (s: RoomState) => IN_GAME.includes(s.phase);
 
 export function playersBySeat(s: RoomState): Player[] {
@@ -142,10 +149,20 @@ function reduce(s: RoomState, a: EngineAction, now: number): ErrorCode | null {
       return submit(s, a.playerId, "answer", a.value);
     case "predict":
       return submit(s, a.playerId, "predict", a.value);
+    case "echo":
+      return submitEcho(s, a.playerId, a.choice);
+    case "consent": {
+      const p = s.players[a.playerId];
+      if (!p) return "not_joined";
+      // Consent is locked during a game so it always covers every answer in it.
+      if (s.phase !== "lobby") return "wrong_phase";
+      p.onRecord = a.value;
+      return null;
+    }
     case "next":
       if (!s.players[a.playerId]) return "not_joined";
       if (!isHost(s, a.playerId)) return "not_host";
-      if (s.phase !== "reveal") return "wrong_phase";
+      if (s.phase !== "reveal" && s.phase !== "echo_reveal") return "wrong_phase";
       advance(s, now);
       return null;
     case "play_again":
@@ -192,6 +209,7 @@ function join(s: RoomState, id: string, rawName: string): ErrorCode | null {
     score: 0,
     bullseyes: 0,
     wildcards: 0,
+    onRecord: false,
   };
   return null;
 }
@@ -199,12 +217,13 @@ function join(s: RoomState, id: string, rawName: string): ErrorCode | null {
 function removePlayer(s: RoomState, id: string): void {
   delete s.players[id];
   const r = s.current;
-  if (r && (s.phase === "answer" || s.phase === "predict")) {
+  if (r && COLLECTING.includes(s.phase)) {
     // Unrevealed submissions from a departed player are discarded so the
     // average reflects only people still in the room.
     r.participants = r.participants.filter((p) => p !== id);
     delete r.answers[id];
     delete r.predictions[id];
+    delete r.choices[id];
   }
   if (s.hostId === id) s.hostId = null;
 }
@@ -232,20 +251,25 @@ function start(s: RoomState, id: string, now: number): ErrorCode | null {
 function beginRound(s: RoomState, index: number, now: number): void {
   const promptId = s.prompts[index - 1];
   if (promptId === undefined) throw new Error("prompt list exhausted");
+  // Generated once and persisted with the round: never regenerated later.
+  const echo = index % ECHO_EVERY === 0 ? generateEcho(s, index) : null;
   s.round = index;
   s.current = {
     index,
+    kind: echo ? "echo" : "regular",
     promptId,
     participants: activePlayers(s).map((p) => p.id),
     answers: {},
     predictions: {},
+    echo,
+    choices: {},
     average: null,
     voided: false,
     wildcardId: null,
     scores: {},
   };
-  s.phase = "answer";
-  s.deadline = now + duration(s, DURATIONS.answer);
+  s.phase = echo ? "echo" : "answer";
+  s.deadline = now + duration(s, echo ? DURATIONS.echo : DURATIONS.answer);
 }
 
 function submit(s: RoomState, id: string, kind: "answer" | "predict", value: number): ErrorCode | null {
@@ -259,6 +283,34 @@ function submit(s: RoomState, id: string, kind: "answer" | "predict", value: num
   if (!valid) return "invalid_value";
   bucket[id] = kind === "answer" ? value : Math.round(value * 10) / 10;
   return null;
+}
+
+function submitEcho(s: RoomState, id: string, choice: number): ErrorCode | null {
+  if (!s.players[id]) return "not_joined";
+  if (s.phase !== "echo") return "wrong_phase";
+  const r = s.current;
+  if (!r?.echo || !r.participants.includes(id)) return "not_participant";
+  if (r.choices[id] !== undefined) return "already_submitted";
+  if (!isValidEchoChoice(r.echo, id, choice)) return "invalid_value";
+  r.choices[id] = choice;
+  return null;
+}
+
+function revealEcho(s: RoomState, now: number): void {
+  const r = s.current;
+  if (!r?.echo) return;
+  const ids = presentParticipants(s, r).map((p) => p.id);
+  r.participants = ids;
+  // Never name a Who Said It subject who has left the room.
+  const cancelled = r.echo.kind === "who" && !s.players[r.echo.subjectId];
+  r.voided = cancelled;
+  r.scores = cancelled ? Object.fromEntries(ids.map((id) => [id, { ...ZERO_SCORE }])) : scoreEcho(r.echo, ids, r.choices);
+  for (const [id, sc] of Object.entries(r.scores)) {
+    const p = s.players[id];
+    if (p) p.score += sc.total;
+  }
+  s.phase = "echo_reveal";
+  s.deadline = now + duration(s, DURATIONS.echoReveal);
 }
 
 /** Moves the current phase forward exactly one step. */
@@ -278,7 +330,11 @@ function advance(s: RoomState, now: number): void {
     case "predict":
       reveal(s, now);
       return;
+    case "echo":
+      revealEcho(s, now);
+      return;
     case "reveal":
+    case "echo_reveal":
       if (r) s.history.push(r);
       s.current = null;
       if (s.round < s.settings.rounds) beginRound(s, s.round + 1, now);
@@ -375,7 +431,7 @@ function settle(s: RoomState, now: number): void {
 
   // A game cannot continue with fewer than two seated players.
   if (isInGame(s) && activePlayers(s).length < MIN_PLAYERS) {
-    if (s.current && s.phase === "reveal") s.history.push(s.current);
+    if (s.current && (s.phase === "reveal" || s.phase === "echo_reveal")) s.history.push(s.current);
     s.endedEarly = true;
     finish(s);
   }
@@ -383,8 +439,8 @@ function settle(s: RoomState, now: number): void {
   // Early advance once every connected participant has submitted.
   for (let i = 0; i < 3; i++) {
     const r = s.current;
-    if (!r || (s.phase !== "answer" && s.phase !== "predict")) break;
-    const bucket = s.phase === "answer" ? r.answers : r.predictions;
+    if (!r || !COLLECTING.includes(s.phase)) break;
+    const bucket = s.phase === "answer" ? r.answers : s.phase === "predict" ? r.predictions : r.choices;
     const present = presentParticipants(s, r);
     const connected = present.filter((p) => p.connected);
     const submittedCount = present.filter((p) => bucket[p.id] !== undefined).length;
@@ -420,4 +476,26 @@ export function nextWakeTime(s: RoomState): number | null {
 
 export function isAbandoned(s: RoomState, now: number): boolean {
   return s.emptySince !== null && now - s.emptySince >= ABANDON_MS;
+}
+
+/**
+ * Upgrades state persisted by an older version (v1 had no Echo Rounds or
+ * consent). Missing fields get safe defaults: regular rounds, no consent.
+ */
+export function migrateState(raw: unknown): RoomState | null {
+  if (!raw || typeof raw !== "object") return null;
+  const s = raw as Omit<RoomState, "v"> & { v: number };
+  if (s.v === 2) return s as RoomState;
+  if (s.v !== 1) return null;
+  const fixRound = (r: Partial<RoundRecord> & RoundRecord) => {
+    r.kind ??= "regular";
+    r.echo ??= null;
+    r.choices ??= {};
+    for (const sc of Object.values(r.scores ?? {})) sc.mystery ??= 0;
+  };
+  if (s.current) fixRound(s.current);
+  s.history.forEach(fixRound);
+  for (const p of Object.values(s.players)) p.onRecord ??= false;
+  s.v = 2;
+  return s as RoomState;
 }

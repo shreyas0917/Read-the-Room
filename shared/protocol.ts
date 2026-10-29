@@ -5,12 +5,12 @@
 // pushes a fresh personalised `state` snapshot (ClientView) to each socket.
 // See docs/PROTOCOL.md for the sequence.
 
-import { ANSWER_MAX, ANSWER_MIN, NAME_MAX, ROUND_OPTIONS, type RoundCount } from "./rules";
+import { ANSWER_MAX, ANSWER_MIN, ECHO_CHOICE_MAX, NAME_MAX, ROUND_OPTIONS, type RoundCount } from "./rules";
 
 // ---------------------------------------------------------------------------
 // Authoritative server state (never sent to clients as-is)
 
-export type Phase = "lobby" | "answer" | "predict" | "reveal" | "final";
+export type Phase = "lobby" | "answer" | "predict" | "reveal" | "echo" | "echo_reveal" | "final";
 export type Role = "player" | "spectator";
 
 export interface Player {
@@ -24,6 +24,8 @@ export interface Player {
   score: number;
   bullseyes: number;
   wildcards: number;
+  /** Consent for "Who said it?" to name this player. Lobby-only switch, off by default. */
+  onRecord: boolean;
 }
 
 export interface RoundScore {
@@ -33,11 +35,33 @@ export interface RoundScore {
   base: number;
   bullseye: number;
   wildcard: number;
+  /** Who Said It subject's bonus for fooling guessers (0 elsewhere). */
+  mystery: number;
   total: number;
 }
 
+export type EchoKind = "count" | "pattern" | "who";
+export type PatternMetric = "highest" | "lowest" | "split";
+
+/** A generated Echo Round. `truth` (and `subjectId`) are SECRET until the echo reveal. */
+export type EchoChallenge =
+  | { kind: "count"; sourceRound: number; promptId: string; threshold: number; max: number; truth: number }
+  | { kind: "pattern"; metric: PatternMetric; options: { round: number; promptId: string }[]; truth: number }
+  | {
+      kind: "who";
+      sourceRound: number;
+      promptId: string;
+      value: number;
+      subjectId: string;
+      /** Player ids, seat order. */
+      options: string[];
+      truth: number;
+    };
+
 export interface RoundRecord {
   index: number;
+  kind: "regular" | "echo";
+  /** Prompt reserved for this round number (unused by an Echo Round). */
   promptId: string;
   /** Player ids eligible to answer/predict this round (snapshotted at start). */
   participants: string[];
@@ -45,6 +69,10 @@ export interface RoundRecord {
   answers: Record<string, number>;
   /** SECRET until reveal. */
   predictions: Record<string, number>;
+  /** Echo Rounds only. */
+  echo: EchoChallenge | null;
+  /** Echo picks. SECRET until the echo reveal. */
+  choices: Record<string, number>;
   average: number | null;
   voided: boolean;
   wildcardId: string | null;
@@ -56,7 +84,7 @@ export interface Settings {
 }
 
 export interface RoomState {
-  v: 1;
+  v: 2;
   code: string;
   createdAt: number;
   /** Last client-initiated change; used only for diagnostics. */
@@ -88,6 +116,8 @@ export type ClientMessage =
   | { t: "resume"; playerId: string; token: string }
   | { t: "answer"; value: number }
   | { t: "predict"; value: number }
+  | { t: "echo"; choice: number }
+  | { t: "consent"; value: boolean }
   | { t: "start" }
   | { t: "next" }
   | { t: "settings"; rounds: RoundCount }
@@ -174,6 +204,47 @@ export interface RoundSummary {
   counts: number[];
 }
 
+export interface EchoPickView {
+  playerId: string;
+  choice: number | null;
+  score: RoundScore;
+}
+
+export interface EchoStatsView {
+  average: number;
+  spread: number;
+  counts: number[];
+}
+
+export interface EchoResultView {
+  /** Who Said It subject left before the reveal: no points. */
+  cancelled: boolean;
+  truth: number;
+  subjectId: string | null;
+  picks: EchoPickView[];
+  /** pattern: stats of each option, same order as `promptOptions`. */
+  stats: EchoStatsView[] | null;
+  /** count: the source round's anonymous distribution. */
+  counts: number[] | null;
+}
+
+export interface EchoView {
+  kind: EchoKind;
+  /** True for the game's first Echo Round, so the client can explain the format. */
+  first: boolean;
+  sourceRound: number | null;
+  prompt: PromptView | null;
+  threshold: number | null;
+  max: number | null;
+  value: number | null;
+  metric: PatternMetric | null;
+  promptOptions: PromptView[] | null;
+  playerOptions: string[] | null;
+  /** Who Said It: true only in the subject's own view. */
+  youAreSubject: boolean;
+  result: EchoResultView | null;
+}
+
 export interface ClientView {
   code: string;
   phase: Phase;
@@ -183,13 +254,16 @@ export interface ClientView {
   serverNow: number;
   settings: Settings;
   hostId: string | null;
-  you: { id: string; role: Role; isHost: boolean; participant: boolean } | null;
+  you: { id: string; role: Role; isHost: boolean; participant: boolean; onRecord: boolean } | null;
+  /** How many players opted in to "Who said it?" — a count, never who. */
+  onRecordCount: number;
   players: PlayerView[];
   prompt: PromptView | null;
   submittedCount: number;
   expectedCount: number;
-  mine: { answer: number | null; prediction: number | null };
+  mine: { answer: number | null; prediction: number | null; echo: number | null };
   reveal: RevealView | null;
+  echo: EchoView | null;
   standings: Standing[] | null;
   rounds: RoundSummary[] | null;
   endedEarly: boolean;
@@ -263,6 +337,14 @@ export function parseClientMessage(raw: unknown): ParseResult {
     case "predict":
       if (!only("value") || !isValidPrediction(data.value)) return { ok: false, error: "Prediction must be between 1.0 and 10.0" };
       return { ok: true, msg: { t: "predict", value: Math.round(data.value * 10) / 10 } };
+    case "echo":
+      if (!only("choice")) break;
+      if (typeof data.choice !== "number" || !Number.isInteger(data.choice) || data.choice < 0 || data.choice > ECHO_CHOICE_MAX)
+        return { ok: false, error: "Invalid choice" };
+      return { ok: true, msg: { t: "echo", choice: data.choice } };
+    case "consent":
+      if (!only("value") || typeof data.value !== "boolean") break;
+      return { ok: true, msg: { t: "consent", value: data.value } };
     case "settings":
       if (!only("rounds")) break;
       if (!ROUND_OPTIONS.includes(data.rounds as RoundCount)) return { ok: false, error: "Unsupported round count" };

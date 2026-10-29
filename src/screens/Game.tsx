@@ -3,14 +3,22 @@ import type { ClientMessage, ClientView, PlayerView } from "../../shared/protoco
 import { DURATIONS } from "../../shared/rules";
 import { Avatar, Button, Countdown, DotPlot, RatingSlider } from "../components/ui";
 
-interface Props {
+export interface Props {
   view: ClientView;
   send: (m: ClientMessage) => void;
   offset: number;
 }
 
-function RoundHeader({ view, offset, label }: Props & { label: string }) {
-  const total = view.phase === "answer" ? DURATIONS.answer : view.phase === "predict" ? DURATIONS.predict : DURATIONS.reveal;
+const PHASE_TOTAL: Partial<Record<ClientView["phase"], number>> = {
+  answer: DURATIONS.answer,
+  predict: DURATIONS.predict,
+  reveal: DURATIONS.reveal,
+  echo: DURATIONS.echo,
+  echo_reveal: DURATIONS.echoReveal,
+};
+
+export function RoundHeader({ view, offset, label }: Props & { label: string }) {
+  const total = PHASE_TOTAL[view.phase] ?? DURATIONS.reveal;
   return (
     <header className="round-head">
       <div>
@@ -24,7 +32,7 @@ function RoundHeader({ view, offset, label }: Props & { label: string }) {
   );
 }
 
-function SubmittedStrip({ view }: { view: ClientView }) {
+export function SubmittedStrip({ view }: { view: ClientView }) {
   const ps = view.players.filter((p) => p.submitted !== null);
   return (
     <div className="strip" aria-label={`${view.submittedCount} of ${view.expectedCount} locked in`}>
@@ -51,7 +59,7 @@ function PromptCard({ view }: { view: ClientView }) {
   );
 }
 
-function Spectating() {
+export function Spectating() {
   return <p className="notice">You joined mid-game, so you're spectating. You'll play in the next game.</p>;
 }
 
@@ -87,7 +95,13 @@ export function AnswerScreen(props: Props) {
           <Button big onClick={() => send({ t: "answer", value })}>
             Lock in {value}
           </Button>
-          <p className="muted small center">Secret &amp; anonymous.</p>
+          {view.you?.onRecord ? (
+            <p className="onrecord small">
+              <b>On the record.</b> You opted in, so this answer could be shown with your name in a "Who said it?" round.
+            </p>
+          ) : (
+            <p className="muted small center">Secret &amp; anonymous.</p>
+          )}
         </section>
       )}
       <SubmittedStrip view={view} />

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { viewFor } from "../../shared/redact";
 import type { ClientView } from "../../shared/protocol";
-import { T0, must, pid, playRound, started } from "./helpers";
+import { T0, must, pid, playAny, playRound, started } from "./helpers";
 
 /** Recursively collects every key in a JSON value. */
 function keysOf(x: unknown, out = new Set<string>()): Set<string> {
@@ -15,7 +15,7 @@ function keysOf(x: unknown, out = new Set<string>()): Set<string> {
   return out;
 }
 
-const FORBIDDEN_KEYS = ["answers", "predictions", "tokens", "token", "tokenHash", "seed", "prompts", "participants"];
+const FORBIDDEN_KEYS = ["answers", "predictions", "choices", "subjectId", "tokens", "token", "tokenHash", "seed", "prompts", "participants"];
 
 function assertNoSecrets(v: ClientView) {
   const keys = keysOf(JSON.parse(JSON.stringify(v)));
@@ -45,7 +45,7 @@ describe("redaction", () => {
     s = must(s, { type: "predict", playerId: pid(2), value: 6.4 });
     const v1 = viewFor(s, pid(1), T0);
     assertNoSecrets(v1);
-    expect(v1.mine).toEqual({ answer: 3, prediction: null });
+    expect(v1.mine).toEqual({ answer: 3, prediction: null, echo: null });
     expect(JSON.stringify(v1)).not.toContain("6.4");
   });
 
@@ -66,18 +66,18 @@ describe("redaction", () => {
     const v = viewFor(s, null, T0);
     assertNoSecrets(v);
     expect(v.you).toBeNull();
-    expect(v.mine).toEqual({ answer: null, prediction: null });
+    expect(v.mine).toEqual({ answer: null, prediction: null, echo: null });
   });
 
   it("the final recap exposes only per-prompt aggregates", () => {
     let s = started(2, 6);
     for (let r = 1; r <= 6; r++) {
-      s = playRound(s, [3, 8], [5, 5]);
+      s = playAny(s, [3, 8], [5, 5]);
       s = must(s, { type: "next", playerId: pid(1) });
     }
     const v = viewFor(s, pid(2), T0);
     assertNoSecrets(v);
-    expect(v.rounds).toHaveLength(6);
+    expect(v.rounds).toHaveLength(4); // regular rounds only
     expect(v.standings?.map((x) => x.rank)).toEqual([1, 1]);
   });
 });

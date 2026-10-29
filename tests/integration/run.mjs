@@ -1,6 +1,6 @@
 // Real multi-client integration test. Starts the app in the actual Workers
 // runtime (workerd via the Cloudflare Vite plugin, CLOUDFLARE_ENV=test for
-// 10× faster timers), then drives it with independent WebSocket clients.
+// 2× faster timers), then drives it with independent WebSocket clients.
 //
 //   npm run test:integration
 //   BASE_URL=https://… node tests/integration/run.mjs   (against a deployment;
@@ -192,18 +192,21 @@ function eq(a, b, msg) {
   if (ja !== jb) throw new Error(`Assertion failed: ${msg}\n  expected ${jb}\n  received ${ja}`);
 }
 
-const SECRET_KEYS = ["answers", "predictions", "token", "tokens", "tokenHash", "seed", "prompts", "participants"];
+const SECRET_KEYS = ["answers", "predictions", "choices", "token", "tokens", "tokenHash", "seed", "prompts", "participants"];
+/** Extra keys that must not appear while an Echo question is open. */
+const ECHO_SECRET_KEYS = ["truth", "subjectId"];
 
 /** Every state message a client ever received must be free of secret fields. */
 function assertNoLeaks(client) {
   for (const m of client.msgs) {
     if (m.t !== "state") continue;
+    const forbidden = m.view.phase === "echo" ? [...SECRET_KEYS, ...ECHO_SECRET_KEYS] : SECRET_KEYS;
     const stack = [m.view];
     while (stack.length) {
       const x = stack.pop();
       if (x && typeof x === "object") {
         for (const [k, v] of Object.entries(x)) {
-          assert(!SECRET_KEYS.includes(k), `${client.label} received secret key "${k}"`);
+          assert(!forbidden.includes(k), `${client.label} received secret key "${k}" in phase ${m.view.phase}`);
           stack.push(v);
         }
       }
@@ -219,15 +222,18 @@ async function createRoom() {
 }
 
 // Mirror of the documented scoring rule, computed independently of shared/.
-function expectedRound(answers, predictions) {
-  const avg = answers.reduce((a, b) => a + b, 0) / answers.length;
-  const dist = answers.map((a) => Math.abs(a - avg));
+// `answers[i]` is null for a player who didn't answer (no Wildcard eligibility).
+function expectedRegular(answers, predictions) {
+  const idx = answers.map((a, i) => (a === null ? -1 : i)).filter((i) => i >= 0);
+  const vals = idx.map((i) => answers[i]);
+  const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
+  const dist = vals.map((a) => Math.abs(a - avg));
   const max = Math.max(...dist);
-  const wildIdx = dist.filter((d) => Math.abs(d - max) < 1e-9).length === 1 && max >= 2 ? dist.indexOf(max) : -1;
+  const wild = dist.filter((d) => Math.abs(d - max) < 1e-9).length === 1 && max >= 2 ? idx[dist.indexOf(max)] : -1;
   return predictions.map((p, i) => {
     const base = p === null ? 0 : Math.round(100 * Math.max(0, 1 - Math.abs(p - avg) / 3));
     const bull = p !== null && Math.abs(p - avg) <= 0.3 + 1e-9 ? 50 : 0;
-    return base + bull + (i === wildIdx ? 25 : 0);
+    return base + bull + (i === wild ? 25 : 0);
   });
 }
 
@@ -267,6 +273,8 @@ async function fullGame() {
   await A.expectError("bad_message");
   A.send({ t: "answer", value: 5 });
   await A.expectError("wrong_phase");
+  A.send({ t: "echo", choice: 0 });
+  await A.expectError("wrong_phase");
   A.send({ t: "start", force: true });
   await A.expectError("bad_message");
   A.send("x".repeat(2000));
@@ -286,97 +294,89 @@ async function fullGame() {
   eq(new Set([A, B, C].map((c) => c.view.deadline)).size, 1, "all clients share one authoritative deadline");
   eq(A.view.prompt, B.view.prompt, "same prompt on every device");
 
-  const plan = [
-    { answers: [2, 4, 9], predictions: [5, 5.3, 8] },
-    { answers: [5, 5, 10], predictions: [6, 6.7, 6.2] },
-    { answers: [1, 1, 2], predictions: [1.3, 3, 1] },
-    { answers: [7, 8, 9], predictions: [8, 8, 8] },
-    { answers: [3, 6, 9], predictions: [6, 4.5, 10] },
-    { answers: [10, 10, 10], predictions: [10, 9.8, 1] },
-  ];
+  // Rounds 3 and 6 are Echo Rounds; regular rounds follow this plan.
+  const plan = {
+    1: { answers: [2, 4, 9], predictions: [5, 5.3, 8] },
+    2: { answers: [5, 5, 10], predictions: [6, 6.7, 6.2] },
+    4: { answers: [7, 8, 9], predictions: [8, 8, 8] },
+    5: { answers: [3, 6, 9], predictions: [6, 4.5, 10] },
+  };
   const totals = [0, 0, 0];
   const clients = [A, B, C];
   let D = null;
 
-  for (let r = 0; r < plan.length; r++) {
-    const { answers, predictions } = plan[r];
-    const round = r + 1;
-    for (const c of clients) await c.until((v) => v.phase === "answer" && v.round === round, `round ${round} answer`);
-
-    if (round === 2) {
-      // Disconnect Ben mid-round; the room must not wait for him.
-      B.close();
-      await A.until((v) => v.players.find((p) => p.id === B.playerId)?.connected === false, "Ben shown away");
-    }
-
-    A.send({ t: "answer", value: answers[0] });
-    await C.until((v) => v.submittedCount >= 1, "submission count visible");
-    // Privacy: C sees that Ana submitted, but not what.
-    eq(C.view.mine.answer, null, "C cannot see A's answer");
-    assert(C.view.players.find((p) => p.id === A.playerId).submitted === true, "C sees A has submitted");
-    // Abuse probes only in early rounds: at 10x test speed, probing every
-    // round would (correctly) trip the per-socket rate limiter.
-    if (round <= 2) {
-      A.send({ t: "answer", value: answers[0] });
-      await A.expectError("already_submitted");
-      A.send({ t: "predict", value: 5 });
-      await A.expectError("wrong_phase");
-    }
-
-    if (round === 2) {
-      C.send({ t: "answer", value: answers[2] });
-      await A.until((v) => v.phase === "predict", "predict without waiting for Ben");
-      // Ben comes back with his token: same seat, same score.
-      await B.connect(code);
-      const w = await B.resume();
-      eq(w.resumed, true, "resume acknowledged");
-      const bv = await B.until((v) => v.you?.id === B.playerId, "Ben's resumed view");
-      eq(bv.phase, "predict", "Ben resumes into the live phase");
-      eq(bv.players.find((p) => p.id === B.playerId).score, totals[1], "Ben's score restored");
-      eq(bv.mine.answer, null, "Ben did not answer round 2");
-      answers[1] = null;
+  for (let round = 1; round <= 6; round++) {
+    if (round % 3 === 0) {
+      const pts = await playEchoRound(round, clients, plan, { code, reconnect: round === 3 ? B : null, probe: round === 3 });
+      for (let i = 0; i < 3; i++) totals[i] += pts[i];
     } else {
-      B.send({ t: "answer", value: answers[1] });
-      C.send({ t: "answer", value: answers[2] });
-    }
+      const { answers, predictions } = plan[round];
+      for (const c of clients) await c.until((v) => v.phase === "answer" && v.round === round, `round ${round} answer`);
+      plan[round].promptId = A.view.prompt.id;
 
-    for (const c of clients) await c.until((v) => v.phase === "predict" && v.round === round, `round ${round} predict`);
-    for (let i = 0; i < 3; i++) eq(clients[i].view.mine.answer, answers[i], `${clients[i].label} sees own answer`);
+      if (round === 2) {
+        // Disconnect Ben mid-round; the room must not wait for him.
+        B.close();
+        await A.until((v) => v.players.find((p) => p.id === B.playerId)?.connected === false, "Ben shown away");
+      }
 
-    if (round <= 2) {
-      A.send({ t: "predict", value: 11 });
-      await A.expectError("bad_message");
-    }
-    for (let i = 0; i < 3; i++) clients[i].send({ t: "predict", value: predictions[i] });
-    for (const c of clients) await c.until((v) => v.phase === "reveal" && v.round === round, `round ${round} reveal`);
+      A.send({ t: "answer", value: answers[0] });
+      await C.until((v) => v.submittedCount >= 1, "submission count visible");
+      // Privacy: C sees that Ana submitted, but not what.
+      eq(C.view.mine.answer, null, "C cannot see A's answer");
+      assert(C.view.players.find((p) => p.id === A.playerId).submitted === true, "C sees A has submitted");
+      if (round <= 2) {
+        A.send({ t: "answer", value: answers[0] });
+        await A.expectError("already_submitted");
+        A.send({ t: "predict", value: 5 });
+        await A.expectError("wrong_phase");
+        A.send({ t: "echo", choice: 0 });
+        await A.expectError("wrong_phase");
+      }
 
-    const valid = answers.filter((a) => a !== null);
-    const expected = expectedRound(valid, predictions);
-    if (answers[1] === null) {
-      // Ben had no answer; recompute with his prediction but no wildcard eligibility.
+      if (round === 2) {
+        C.send({ t: "answer", value: answers[2] });
+        await A.until((v) => v.phase === "predict", "predict without waiting for Ben");
+        // Ben comes back with his token: same seat, same score.
+        await B.connect(code);
+        const w = await B.resume();
+        eq(w.resumed, true, "resume acknowledged");
+        const bv = await B.until((v) => v.you?.id === B.playerId, "Ben's resumed view");
+        eq(bv.phase, "predict", "Ben resumes into the live phase");
+        eq(bv.players.find((p) => p.id === B.playerId).score, totals[1], "Ben's score restored");
+        eq(bv.mine.answer, null, "Ben did not answer round 2");
+        answers[1] = null;
+      } else {
+        B.send({ t: "answer", value: answers[1] });
+        C.send({ t: "answer", value: answers[2] });
+      }
+
+      for (const c of clients) await c.until((v) => v.phase === "predict" && v.round === round, `round ${round} predict`);
+      for (let i = 0; i < 3; i++) eq(clients[i].view.mine.answer, answers[i], `${clients[i].label} sees own answer`);
+
+      if (round <= 2) {
+        A.send({ t: "predict", value: 11 });
+        await A.expectError("bad_message");
+      }
+      for (let i = 0; i < 3; i++) clients[i].send({ t: "predict", value: predictions[i] });
+      for (const c of clients) await c.until((v) => v.phase === "reveal" && v.round === round, `round ${round} reveal`);
+
+      const expected = expectedRegular(answers, predictions);
+      const valid = answers.filter((a) => a !== null);
       const avg = valid.reduce((a, b) => a + b, 0) / valid.length;
-      const dist = valid.map((a) => Math.abs(a - avg));
-      const max = Math.max(...dist);
-      const unique = dist.filter((d) => Math.abs(d - max) < 1e-9).length === 1 && max >= 2;
-      const wild = unique ? [0, 2][dist.indexOf(max)] : -1;
+      for (const c of clients) {
+        const rv = c.view.reveal;
+        assert(Math.abs(rv.average - avg) < 1e-9, `${c.label} average ${rv.average} vs ${avg}`);
+        eq(rv.answerCount, valid.length, "answer count");
+        eq(rv.counts.reduce((a, b) => a + b, 0), valid.length, "anonymous counts sum");
+      }
       for (let i = 0; i < 3; i++) {
-        const p = predictions[i];
-        const base = Math.round(100 * Math.max(0, 1 - Math.abs(p - avg) / 3));
-        expected[i] = base + (Math.abs(p - avg) <= 0.3 + 1e-9 ? 50 : 0) + (i === wild ? 25 : 0);
+        totals[i] += expected[i];
+        const mine = A.view.reveal.guesses.find((g) => g.playerId === clients[i].playerId);
+        eq(mine.score.total, expected[i], `round ${round} ${clients[i].label} points`);
       }
     }
-    const avg = valid.reduce((a, b) => a + b, 0) / valid.length;
-    for (const c of clients) {
-      const rv = c.view.reveal;
-      assert(Math.abs(rv.average - avg) < 1e-9, `${c.label} average ${rv.average} vs ${avg}`);
-      eq(rv.answerCount, valid.length, "answer count");
-      eq(rv.counts.reduce((a, b) => a + b, 0), valid.length, "anonymous counts sum");
-    }
-    for (let i = 0; i < 3; i++) {
-      totals[i] += expected[i];
-      const mine = A.view.reveal.guesses.find((g) => g.playerId === clients[i].playerId);
-      eq(mine.score.total, expected[i], `round ${round} ${clients[i].label} points`);
-    }
+
     eq(
       clients.map((c) => A.view.players.find((p) => p.id === c.playerId).score),
       totals,
@@ -399,14 +399,14 @@ async function fullGame() {
       evil.close();
     }
 
-    if (round <= 2) {
+    if (round <= 3) {
       B.send({ t: "next" });
       await B.expectError("not_host");
     }
     A.send({ t: "next" });
-    if (D && round < plan.length) {
-      await D.until((v) => v.phase === "answer" && v.round === round + 1, "Dee sees next round");
-      D.send({ t: "answer", value: 5 });
+    if (D && round < 6) {
+      const v = await D.until((x) => x.round === round + 1 && (x.phase === "answer" || x.phase === "echo"), "Dee sees next round");
+      D.send(v.phase === "echo" ? { t: "echo", choice: 0 } : { t: "answer", value: 5 });
       await D.expectError("not_participant");
     }
   }
@@ -416,7 +416,7 @@ async function fullGame() {
   eq(st.length, 3, "three ranked players (spectator excluded)");
   const byId = Object.fromEntries(st.map((s) => [s.playerId, s.score]));
   eq([byId[A.playerId], byId[B.playerId], byId[C.playerId]], totals, "final scores match independent tally");
-  eq(A.view.rounds.length, 6, "recap has every round");
+  eq(A.view.rounds.length, 4, "recap lists the regular rounds");
 
   A.send({ t: "play_again" });
   for (const c of [A, B, C]) await c.until((v) => v.phase === "lobby", "rematch lobby");
@@ -425,6 +425,201 @@ async function fullGame() {
 
   for (const c of [A, B, C, D]) assertNoLeaks(c);
   for (const c of [A, B, C, D]) c.close();
+}
+
+/** The question part of an EchoView (what must be identical on every device). */
+function question(e) {
+  const { result, youAreSubject, first, ...rest } = e;
+  return rest;
+}
+
+/** Independent expected truth for count / pattern, from the test's own plan. */
+function expectedTruth(e, plan) {
+  const valid = (r) => plan[r].answers.filter((a) => a !== null);
+  if (e.kind === "count") {
+    eq(e.max, valid(e.sourceRound).length, "count: max is the source answer count");
+    return valid(e.sourceRound).filter((v) => v > e.threshold).length;
+  }
+  if (e.kind === "pattern") {
+    const roundOf = (promptId) => Number(Object.keys(plan).find((r) => plan[r].promptId === promptId));
+    const values = e.promptOptions.map((p) => {
+      const vals = valid(roundOf(p.id));
+      const m = vals.reduce((a, b) => a + b, 0) / vals.length;
+      if (e.metric === "highest") return m;
+      if (e.metric === "lowest") return -m;
+      return Math.sqrt(vals.reduce((a, v) => a + (v - m) ** 2, 0) / vals.length);
+    });
+    const best = Math.max(...values);
+    const second = Math.max(...values.filter((_, i) => i !== values.indexOf(best)));
+    assert(best - second >= 0.1 - 1e-9, "pattern: unambiguous winner");
+    return values.indexOf(best);
+  }
+  return null;
+}
+
+function echoPoints(e, truth, choice) {
+  if (choice === null) return 0;
+  if (e.kind === "count") return Math.abs(choice - truth) === 0 ? 100 : Math.abs(choice - truth) === 1 ? 50 : 0;
+  return choice === truth ? 100 : 0;
+}
+
+/**
+ * Plays one Echo Round with every client, verifying sync, privacy, validation
+ * and scoring against independently computed expectations. Returns points per client.
+ */
+async function playEchoRound(round, clients, plan, { code, reconnect = null, probe = false }) {
+  for (const c of clients) await c.until((v) => v.phase === "echo" && v.round === round, `round ${round} echo`);
+  const e = clients[0].view.echo;
+  for (const c of clients) eq(question(c.view.echo), question(e), `${c.label} sees the same echo question`);
+  eq(clients[0].view.echo.first, round === 3, "first-echo flag");
+  assert(e.kind !== "who", "no Who Said It without consent");
+  const truth = expectedTruth(e, plan);
+  const max = e.kind === "count" ? e.max : e.promptOptions.length - 1;
+
+  const [A] = clients;
+  if (probe) {
+    A.send({ t: "answer", value: 5 });
+    await A.expectError("wrong_phase");
+    A.send({ t: "echo", choice: 99 });
+    await A.expectError("bad_message");
+    A.send({ t: "echo", choice: max + 1 });
+    await A.expectError("invalid_value");
+  }
+
+  const picks = clients.map((_, i) => (i === 0 ? truth : i === 1 ? Math.min(truth + 1, max) : 0));
+  const pickOf = (i) => (e.kind === "pattern" && i === 1 ? (truth + 1) % 3 : picks[i]);
+
+  for (let i = 0; i < clients.length; i++) {
+    const c = clients[i];
+    if (i === clients.length - 1) break; // last one goes after the reconnect check
+    c.send({ t: "echo", choice: pickOf(i) });
+    await c.until((v) => v.mine.echo === pickOf(i), `${c.label} pick recorded`);
+  }
+  if (probe) {
+    A.send({ t: "echo", choice: pickOf(0) });
+    await A.expectError("already_submitted");
+    // Others see that A picked, never what.
+    const other = clients[clients.length - 1];
+    await other.until((v) => v.players.find((p) => p.id === A.playerId).submitted === true, "submitted flag visible");
+    eq(other.view.mine.echo, null, "no one else's pick visible");
+  }
+
+  if (reconnect) {
+    // Drop and resume mid-Echo: same question, own pick preserved.
+    const idx = clients.indexOf(reconnect);
+    reconnect.close();
+    await A.until((v) => v.players.find((p) => p.id === reconnect.playerId)?.connected === false, "away during echo");
+    await reconnect.connect(code);
+    await reconnect.resume();
+    const rv = await reconnect.until((v) => v.you?.id === reconnect.playerId && v.phase === "echo", "resumed into echo");
+    eq(question(rv.echo), question(e), "same echo question after reconnect");
+    eq(rv.mine.echo, pickOf(idx), "own pick preserved across reconnect");
+  }
+
+  const last = clients.length - 1;
+  clients[last].send({ t: "echo", choice: pickOf(last) });
+  for (const c of clients) await c.until((v) => v.phase === "echo_reveal" && v.round === round, `round ${round} echo reveal`);
+  const res = clients[0].view.echo.result;
+  eq(res.truth, truth, `round ${round} ${e.kind}: server truth matches independent computation`);
+  const pts = clients.map((c, i) => echoPoints(e, truth, pickOf(i)));
+  for (let i = 0; i < clients.length; i++) {
+    const pk = res.picks.find((p) => p.playerId === clients[i].playerId);
+    eq(pk.choice, pickOf(i), "pick revealed");
+    eq(pk.score.total, pts[i], `round ${round} ${clients[i].label} echo points`);
+  }
+  if (e.kind === "count") eq(res.counts.reduce((a, b) => a + b, 0), e.max, "source counts shown at reveal");
+  return pts;
+}
+
+async function echoModes() {
+  // Four consenting players, 9 rounds → every Echo mode, including Who Said It.
+  const code = await createRoom();
+  const names = ["Ana", "Ben", "Cy", "Di"];
+  const clients = names.map((n) => new Client(n));
+  for (const c of clients) await c.connect(code);
+  for (let i = 0; i < 4; i++) await clients[i].hello(names[i]);
+  const [A] = clients;
+  for (const c of clients) {
+    c.send({ t: "consent", value: true });
+    await c.until((v) => v.you?.onRecord === true, `${c.label} on the record`);
+  }
+  await A.until((v) => v.onRecordCount === 4, "consent count");
+  for (const c of clients) {
+    const st = c.view.players.map((p) => Object.keys(p));
+    assert(st.every((k) => !k.includes("onRecord")), "no per-player consent flags in views");
+  }
+  A.send({ t: "settings", rounds: 9 });
+  await A.until((v) => v.settings.rounds === 9, "9 rounds");
+  A.send({ t: "start" });
+  await A.until((v) => v.phase === "answer", "started");
+  A.send({ t: "consent", value: false });
+  await A.expectError("wrong_phase");
+
+  // No Wildcards (max distance < 2) and distinct, unique-ish answers.
+  const plan = {
+    1: { answers: [4, 5, 6, 7] },
+    2: { answers: [1, 2, 3, 4] },
+    4: { answers: [7, 8, 9, 10] },
+    5: { answers: [3, 4, 4, 5] },
+    7: { answers: [5, 6, 6, 7] },
+    8: { answers: [2, 3, 3, 4] },
+  };
+  const kinds = [];
+  for (let round = 1; round <= 9; round++) {
+    if (round % 3 !== 0) {
+      for (const c of clients) await c.until((v) => v.phase === "answer" && v.round === round, `round ${round}`);
+      plan[round].promptId = A.view.prompt.id;
+      clients.forEach((c, i) => c.send({ t: "answer", value: plan[round].answers[i] }));
+      await A.until((v) => v.phase === "predict", "predict");
+      clients.forEach((c) => c.send({ t: "predict", value: 5 }));
+      await A.until((v) => v.phase === "reveal" && v.round === round, "reveal");
+    } else {
+      for (const c of clients) await c.until((v) => v.phase === "echo" && v.round === round, `echo ${round}`);
+      const e = A.view.echo;
+      for (const c of clients) eq(question(c.view.echo), question(e), "same question everywhere");
+      kinds.push(e.kind);
+      if (e.kind === "who") {
+        const subjects = clients.filter((c) => c.view.echo.youAreSubject);
+        eq(subjects.length, 1, "exactly one client is told it's them");
+        const subject = subjects[0];
+        const si = clients.indexOf(subject);
+        eq(plan[e.sourceRound].answers[si], e.value, "the subject really gave that answer");
+        eq(plan[e.sourceRound].answers.filter((v) => v === e.value).length, 1, "and it was unique");
+        const truth = e.playerOptions.indexOf(subject.playerId);
+        assert(truth >= 0, "subject is among the options");
+        // Every view of the question omits who it is.
+        for (const c of clients) {
+          const raw = JSON.stringify(c.view);
+          assert(!raw.includes('"subjectId"') && !raw.includes('"truth"'), `${c.label}: no subject/truth before reveal`);
+        }
+        const notSelf = (c) => e.playerOptions.findIndex((id) => id !== c.playerId && id !== subject.playerId);
+        const picks = clients.map((c, i) => (c === subject ? notSelf(c) : i % 2 === 0 ? truth : notSelf(c)));
+        subject.send({ t: "echo", choice: e.playerOptions.indexOf(subject.playerId) });
+        await subject.expectError("invalid_value");
+        clients.forEach((c, i) => c.send({ t: "echo", choice: picks[i] }));
+        await A.until((v) => v.phase === "echo_reveal", "who reveal");
+        const res = A.view.echo.result;
+        eq(res.subjectId, subject.playerId, "subject named at reveal");
+        eq(res.truth, truth, "who truth");
+        const wrong = clients.filter((c, i) => c !== subject && picks[i] !== truth).length;
+        for (let i = 0; i < 4; i++) {
+          const sc = res.picks.find((p) => p.playerId === clients[i].playerId).score;
+          const want = clients[i] === subject ? Math.min(100, 25 * wrong) : picks[i] === truth ? 100 : 0;
+          eq(sc.total, want, `who points for ${clients[i].label}`);
+        }
+      } else {
+        const truth = expectedTruth(e, plan);
+        clients.forEach((c) => c.send({ t: "echo", choice: truth }));
+        await A.until((v) => v.phase === "echo_reveal", "echo reveal");
+        eq(A.view.echo.result.truth, truth, `${e.kind} truth`);
+      }
+    }
+    A.send({ t: "next" });
+  }
+  await A.until((v) => v.phase === "final", "final");
+  eq([...new Set(kinds)].sort(), ["count", "pattern", "who"], `all three modes played (got ${kinds.join(", ")})`);
+  for (const c of clients) assertNoLeaks(c);
+  for (const c of clients) c.close();
 }
 
 async function deadlinesWithoutSubmissions() {
@@ -494,7 +689,39 @@ async function survivesRestart() {
   assert(after.round >= 1 && after.phase !== "lobby", `game still in progress (phase=${after.phase} round=${after.round})`);
   eq(after.hostId, A.playerId, "host preserved");
   // Alarms resume after restart: the game keeps advancing on its own.
-  await A.until((v) => v.round >= 2 && v.phase === "answer", "alarm resumes after restart", 10000);
+  await A.until((v) => v.round >= 2 && v.phase === "answer", "alarm resumes after restart", 15000);
+
+  // Round 2, then the Echo Round 3 — and kill the runtime in the middle of it.
+  A.send({ t: "answer", value: 3 });
+  B.send({ t: "answer", value: 6 });
+  await A.until((v) => v.phase === "predict" && v.round === 2, "round 2 predict");
+  A.send({ t: "predict", value: 4.5 });
+  B.send({ t: "predict", value: 4.5 });
+  await A.until((v) => v.phase === "reveal" && v.round === 2, "round 2 reveal");
+  A.send({ t: "next" });
+  const ev = await A.until((v) => v.phase === "echo" && v.round === 3, "echo round 3");
+  B.send({ t: "echo", choice: 1 });
+  await B.until((v) => v.mine.echo === 1, "B picked before restart");
+  const q = question(ev.echo);
+
+  await stopServer();
+  await startServer();
+
+  await A.connect(code);
+  await B.connect(code);
+  await A.resume();
+  await B.resume();
+  const ra = await A.until((v) => v.you?.id === A.playerId, "A after restart");
+  const rb = await B.until((v) => v.you?.id === B.playerId, "B after restart");
+  eq(ra.round, 3, "still round 3 after restart");
+  assert(ra.phase === "echo" || ra.phase === "echo_reveal", `still in the Echo Round (phase=${ra.phase})`);
+  eq(question(ra.echo), q, "identical Echo question after a runtime restart");
+  eq(rb.mine.echo, 1, "pick made before the restart survived");
+  if (ra.phase === "echo") {
+    A.send({ t: "echo", choice: 0 });
+    await A.until((v) => v.phase === "echo_reveal", "echo reveal after restart");
+  }
+  eq(A.view.echo.result.picks.find((p) => p.playerId === B.playerId).choice, 1, "pre-restart pick counted");
   A.close();
   B.close();
 }
@@ -504,10 +731,11 @@ async function survivesRestart() {
 try {
   if (!EXTERNAL) await startServer();
   console.log(`Integration tests against ${BASE}`);
-  await scenario("full 6-round game: 3 players + spectator, sync, privacy, reconnect, validation, rematch", fullGame);
+  await scenario("full 6-round game with 2 Echo Rounds: 3 players + spectator, sync, privacy, reconnects, validation, rematch", fullGame);
+  await scenario("Echo Rounds: all three modes with consent, Who Said It privacy, independent scoring", echoModes);
   await scenario("deadlines advance with no submissions", deadlinesWithoutSubmissions);
   await scenario("per-socket rate limiting", rateLimit);
-  if (!EXTERNAL) await scenario("room state survives a full runtime restart", survivesRestart);
+  if (!EXTERNAL) await scenario("room state and an in-progress Echo Round survive full runtime restarts", survivesRestart);
 } finally {
   await stopServer();
 }

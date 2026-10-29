@@ -125,9 +125,22 @@ export function RatingSlider(props: {
  * Anonymous distribution of answers. Dots stack per value; the viewer's own
  * answer is highlighted. The average marker drops in after the dots.
  */
-export function DotPlot({ counts, average, yourAnswer }: { counts: number[]; average: number | null; yourAnswer: number | null }) {
+export function DotPlot({
+  counts,
+  average,
+  yourAnswer,
+  highlightAbove = null,
+  compact = false,
+}: {
+  counts: number[];
+  average: number | null;
+  yourAnswer: number | null;
+  /** Echo "Higher or lower": highlight dots above this value. */
+  highlightAbove?: number | null;
+  compact?: boolean;
+}) {
   const W = 340;
-  const H = 170;
+  const H = compact ? 110 : 170;
   const padX = 18;
   const base = H - 30;
   const step = (W - padX * 2) / 9;
@@ -141,10 +154,11 @@ export function DotPlot({ counts, average, yourAnswer }: { counts: number[]; ave
     const v = i + 1;
     for (let k = 0; k < n; k++) {
       const mine = yourAnswer === v && k === 0;
+      const hit = highlightAbove !== null && v > highlightAbove;
       dots.push(
         <circle
           key={`${v}-${k}`}
-          className={`dot${mine ? " dot--mine" : ""}`}
+          className={`dot${mine || hit ? " dot--mine" : ""}${highlightAbove !== null && !hit ? " dot--dim" : ""}`}
           cx={x(v)}
           cy={base - r - k * r * 2.15}
           r={r}
@@ -155,13 +169,22 @@ export function DotPlot({ counts, average, yourAnswer }: { counts: number[]; ave
   });
 
   return (
-    <svg className="dotplot" viewBox={`0 0 ${W} ${H}`} role="img" aria-label={describe(counts, average)}>
+    <svg className={`dotplot${compact ? " dotplot--compact" : ""}`} viewBox={`0 0 ${W} ${H}`} role="img" aria-label={describe(counts, average)}>
       <line x1={padX - 8} x2={W - padX + 8} y1={base + 6} y2={base + 6} className="dotplot__axis" />
       {Array.from({ length: 10 }, (_, i) => (
         <text key={i} x={x(i + 1)} y={H - 6} className="dotplot__tick" textAnchor="middle">
           {i + 1}
         </text>
       ))}
+      {highlightAbove !== null && (
+        <line
+          className="dotplot__threshold"
+          x1={x(highlightAbove + 0.5)}
+          x2={x(highlightAbove + 0.5)}
+          y1={4}
+          y2={base + 10}
+        />
+      )}
       {dots}
       {average !== null && (
         <g className="dotplot__avg" style={{ animationDelay: `${order * 70 + 250}ms` }}>

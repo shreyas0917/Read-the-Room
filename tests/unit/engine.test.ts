@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { applyAction, createRoom, isAbandoned, nextWakeTime } from "../../shared/engine";
 import { ABANDON_MS, DURATIONS, HOST_GRACE_MS, LOBBY_GRACE_MS, MAX_PLAYERS } from "../../shared/rules";
-import { T0, errorOf, lobby, must, pid, playRound, started } from "./helpers";
+import { T0, errorOf, lobby, must, pid, playAny, playRound, started } from "./helpers";
 
 describe("lobby", () => {
   it("makes the first joiner host and assigns distinct avatars and seats", () => {
@@ -87,13 +87,16 @@ describe("round flow", () => {
   it("plays a full game to the final screen and then rematches with reset scores", () => {
     let s = started(2, 6);
     for (let r = 1; r <= 6; r++) {
-      s = playRound(s, [4, 6], [5, 4]);
+      s = playAny(s, [4, 6], [5, 4]);
       s = must(s, { type: "next", playerId: pid(1) });
     }
     expect(s.phase).toBe("final");
     expect(s.deadline).toBeNull();
     expect(s.history).toHaveLength(6);
-    expect(s.players[pid(1)]?.score).toBe(6 * 150);
+    expect(s.history.map((h) => h.kind)).toEqual(["regular", "regular", "echo", "regular", "regular", "echo"]);
+    const regular = s.history.filter((h) => h.kind === "regular").length;
+    const echoPoints = s.history.filter((h) => h.kind === "echo").reduce((n, h) => n + (h.scores[pid(1)]?.total ?? 0), 0);
+    expect(s.players[pid(1)]?.score).toBe(regular * 150 + echoPoints);
     expect(errorOf(s, { type: "play_again", playerId: pid(2) })).toBe("not_host");
     s = must(s, { type: "play_again", playerId: pid(1) });
     expect(s.phase).toBe("lobby");
@@ -209,7 +212,7 @@ describe("late joiners and rematch", () => {
     expect(s.players[pid(5)]?.role).toBe("spectator");
     expect(errorOf(s, { type: "answer", playerId: pid(5), value: 5 })).toBe("not_participant");
     for (let r = 1; r <= 6; r++) {
-      s = playRound(s, [4, 6], [5, 5]);
+      s = playAny(s, [4, 6], [5, 5]);
       s = must(s, { type: "next", playerId: pid(1) });
     }
     s = must(s, { type: "play_again", playerId: pid(1) });

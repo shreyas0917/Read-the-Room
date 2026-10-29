@@ -13,19 +13,33 @@
 import {
   BULLSEYE_BONUS,
   BULLSEYE_RANGE,
+  ECHO_CORRECT,
+  ECHO_EXACT,
+  ECHO_NEAR,
   EPSILON,
   PREDICTION_FALLOFF,
   PREDICTION_MAX,
   WILDCARD_BONUS,
   WILDCARD_MIN_DISTANCE,
+  WHO_FOOLED_BONUS,
+  WHO_FOOLED_MAX,
 } from "./rules";
-import type { Player, RoundScore, Standing } from "./protocol";
+import type { EchoChallenge, Player, RoundScore, Standing } from "./protocol";
 
 export function mean(values: readonly number[]): number | null {
   if (values.length === 0) return null;
   let sum = 0;
   for (const v of values) sum += v;
   return sum / values.length;
+}
+
+/** Population standard deviation ("how split was the room"). */
+export function stdDev(values: readonly number[]): number | null {
+  const m = mean(values);
+  if (m === null) return null;
+  let sq = 0;
+  for (const v of values) sq += (v - m) ** 2;
+  return Math.sqrt(sq / values.length);
 }
 
 export function predictionPoints(prediction: number, average: number): number {
@@ -63,7 +77,8 @@ export interface RoundOutcome {
   scores: Record<string, RoundScore>;
 }
 
-const ZERO: RoundScore = { prediction: null, error: null, base: 0, bullseye: 0, wildcard: 0, total: 0 };
+export const ZERO_SCORE: RoundScore = { prediction: null, error: null, base: 0, bullseye: 0, wildcard: 0, mystery: 0, total: 0 };
+const ZERO = ZERO_SCORE;
 
 export function scoreRound(
   participants: readonly string[],
@@ -93,9 +108,46 @@ export function scoreRound(
     }
     const base = predictionPoints(p, average);
     const bullseye = isBullseye(p, average) ? BULLSEYE_BONUS : 0;
-    scores[id] = { prediction: p, error: Math.abs(p - average), base, bullseye, wildcard, total: base + bullseye + wildcard };
+    scores[id] = {
+      prediction: p,
+      error: Math.abs(p - average),
+      base,
+      bullseye,
+      wildcard,
+      mystery: 0,
+      total: base + bullseye + wildcard,
+    };
   }
   return { average, voided: false, wildcardId, scores };
+}
+
+/**
+ * Echo Round scoring (docs/ECHO_ROUNDS.md). Participants who didn't pick
+ * score 0. Who Said It: guessers get 100 for the right person; the subject
+ * makes a decoy pick and earns +25 per wrong guess (max 100).
+ */
+export function scoreEcho(
+  ch: EchoChallenge,
+  participants: readonly string[],
+  choices: Readonly<Record<string, number>>,
+): Record<string, RoundScore> {
+  const scores: Record<string, RoundScore> = {};
+  const subject = ch.kind === "who" ? ch.subjectId : null;
+  const fooled = participants.filter((id) => id !== subject && choices[id] !== undefined && choices[id] !== ch.truth).length;
+  for (const id of participants) {
+    const c = choices[id];
+    let base = 0;
+    let mystery = 0;
+    if (id === subject) mystery = Math.min(WHO_FOOLED_MAX, WHO_FOOLED_BONUS * fooled);
+    else if (c !== undefined) {
+      if (ch.kind === "count") {
+        const diff = Math.abs(c - ch.truth);
+        base = diff === 0 ? ECHO_EXACT : diff === 1 ? ECHO_NEAR : 0;
+      } else base = c === ch.truth ? ECHO_CORRECT : 0;
+    }
+    scores[id] = { ...ZERO, base, mystery, total: base + mystery };
+  }
+  return scores;
 }
 
 /**

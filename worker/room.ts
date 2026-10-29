@@ -11,7 +11,7 @@
 // is durable, so clients never see state that could be lost.
 
 import { DurableObject } from "cloudflare:workers";
-import { applyAction, createRoom, isAbandoned, nextWakeTime, type EngineAction } from "../shared/engine";
+import { applyAction, createRoom, isAbandoned, migrateState, nextWakeTime, type EngineAction } from "../shared/engine";
 import { parseClientMessage, type ClientMessage, type ErrorCode, type RoomState, type ServerMessage } from "../shared/protocol";
 import { viewFor } from "../shared/redact";
 
@@ -79,7 +79,8 @@ export class Room extends DurableObject<Env> {
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
-    this.state = ctx.storage.kv.get<RoomState>("state") ?? null;
+    // Rooms saved by an older deploy are upgraded in place on first load.
+    this.state = migrateState(ctx.storage.kv.get<unknown>("state"));
     this.tokens = ctx.storage.kv.get<Record<string, string>>("tokens") ?? {};
   }
 
@@ -315,6 +316,10 @@ function toAction(playerId: string, msg: ClientMessage): EngineAction | null {
       return { type: "answer", playerId, value: msg.value };
     case "predict":
       return { type: "predict", playerId, value: msg.value };
+    case "echo":
+      return { type: "echo", playerId, choice: msg.choice };
+    case "consent":
+      return { type: "consent", playerId, value: msg.value };
     case "start":
       return { type: "start", playerId };
     case "next":

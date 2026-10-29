@@ -5,6 +5,7 @@ import { navigate } from "../router";
 import { Button } from "../components/ui";
 import { Lobby } from "./Lobby";
 import { AnswerScreen, FinalScreen, PredictScreen, RevealScreen } from "./Game";
+import { EchoRevealScreen, EchoScreen } from "./Echo";
 
 export function RoomScreen({ code }: { code: string }) {
   const [initialName] = useState(() => peekPendingJoin(code));
@@ -54,6 +55,12 @@ export function RoomScreen({ code }: { code: string }) {
         break;
       case "reveal":
         body = <RevealScreen {...p} />;
+        break;
+      case "echo":
+        body = <EchoScreen {...p} />;
+        break;
+      case "echo_reveal":
+        body = <EchoRevealScreen {...p} />;
         break;
       case "final":
         body = <FinalScreen {...p} />;

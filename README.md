@@ -2,6 +2,8 @@
 
 A real-time party game for 2–8 phones. Everyone answers a playful question from 1 to 10 in secret, then predicts the room's average. Closest guess wins the round.
 
+Every third round is an **Echo Round**, a question built from what the room already answered: *how many of you went above 6?*, *which question split the room most?*, or (only for players who opted in) *who said 10?* See [docs/ECHO_ROUNDS.md](docs/ECHO_ROUNDS.md).
+
 - **Frontend:** React 19 + TypeScript + Vite 8
 - **Backend:** one Cloudflare Worker + one Durable Object per room (authoritative state, WebSockets, alarms)
 - **No accounts, no paid APIs, no external services.** Fonts are self-hosted.
@@ -22,8 +24,8 @@ Open the URL in a normal window and a private window (or on your phone on the sa
 | `npm run dev` | Vite dev server with the Worker + Durable Object running in workerd |
 | `npm run build` | Strict typecheck (`tsc -b`) + production build to `dist/` |
 | `npm run preview` | Serve the production build in workerd |
-| `npm test` | Unit tests (engine, scoring, redaction, protocol) |
-| `npm run test:integration` | Starts the app (10× faster timers) and plays real multi-client games over WebSockets, including a full runtime restart |
+| `npm test` | Unit tests (engine, scoring, Echo Rounds, redaction, protocol) |
+| `npm run test:integration` | Starts the app (2× faster timers via `CLOUDFLARE_ENV=test`) and plays real multi-client games over WebSockets, including every Echo mode and full runtime restarts mid-game and mid-Echo |
 | `npm run test:e2e` | Builds, serves, and plays a full game in two browser contexts with Playwright |
 | `npm run deploy` | Build and deploy to Cloudflare |
 
@@ -34,7 +36,8 @@ shared/     pure, deterministic, unit-tested — no I/O
   rules.ts      constants (durations, limits, scoring numbers)
   protocol.ts   state + wire types, strict message validation
   engine.ts     (state, action, now) → state | error   — the state machine
-  scoring.ts    round scoring + ranking
+  echo.ts       deterministic Echo Round generation
+  scoring.ts    round + Echo scoring, ranking
   redact.ts     per-player projection: the only way state leaves the server
   prompts.ts    question bank
   rng.ts        seeded PRNG
@@ -50,11 +53,11 @@ tests/        unit · integration (real WebSockets) · e2e (Playwright)
 - **Timers** use a single Durable Object alarm set to the next deadline / grace expiry. They keep working through hibernation and restarts.
 - **Identity:** server-issued UUID + 256-bit resume token; only its SHA-256 hash is stored.
 
-Details: [docs/RULES.md](docs/RULES.md) · [docs/PROTOCOL.md](docs/PROTOCOL.md)
+Details: [docs/RULES.md](docs/RULES.md) · [docs/ECHO_ROUNDS.md](docs/ECHO_ROUNDS.md) · [docs/PROTOCOL.md](docs/PROTOCOL.md)
 
 ## Deploying
 
-Live: **https://read-the-room.read-the-room.workers.dev**
+Live: **https://read-the-room.read-the-room.workers.dev** (currently the pre-Echo baseline, version `047e7926`)
 
 Needs a free Cloudflare account. The free plan supports SQLite-backed Durable Objects, which this project uses.
 
