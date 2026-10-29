@@ -1,0 +1,17 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "overused-font",
+        "value": "inter",
+        "files": [
+          "showcase/cover.html"
+        ],
+        "createdAt": "2026-10-29T14:31:52.602Z",
+        "reason": "Intentional: the cover reuses the game's existing body font (Inter, self-hosted since M1 in src/main.tsx/src/styles.css) so the showcase image matches the product; specified in docs/SHOWCASE.md cover brief"
+      }
+    ]
+  }
+}
