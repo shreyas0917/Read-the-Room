@@ -6,3 +6,20 @@ dist/
 test-results/
 playwright-report/
 .DS_Store
+
+# Local environment and secrets (none are needed; never commit them)
+.env
+.env.*
+!.env.example
+
+# Test and tooling artefacts
+coverage/
+blob-report/
+.playwright/
+*.tsbuildinfo
+
+# Machine-local tool config (the shared .impeccable/config.json is versioned)
+.impeccable/config.local.json
+
+# OS / editor noise
+Thumbs.db

@@ -1,5 +1,7 @@
 # Production-readiness review (Phase D)
 
+> Written on 2026-10-29. Version IDs below name what was reviewed or deployed at that time; for the current status see the README.
+
 Reviewed against `main` at `b5fd71f` (identical to production version `44ff590f`: the local build produces the same bundle hash, `index-x70peI5C.js`). Nothing was run against the live service except single read-only page/header requests and one room creation.
 
 **Legend.** *Confirmed* = reproduced (locally) or directly observed. *Potential* = follows from code or docs but not demonstrated. *Fixed* = changed in this phase, with a regression test.
