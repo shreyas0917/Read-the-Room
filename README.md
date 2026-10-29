@@ -54,10 +54,20 @@ Details: [docs/RULES.md](docs/RULES.md) · [docs/PROTOCOL.md](docs/PROTOCOL.md)
 
 ## Deploying
 
+Live: **https://read-the-room.read-the-room.workers.dev**
+
 Needs a free Cloudflare account. The free plan supports SQLite-backed Durable Objects, which this project uses.
 
-```bash
-npx wrangler login   # opens a browser once
-npm run deploy       # → https://read-the-room.<your-subdomain>.workers.dev
-BASE_URL=https://read-the-room.<your-subdomain>.workers.dev node tests/integration/run.mjs
+```powershell
+npx wrangler login              # opens a browser once
+npx wrangler deploy --dry-run   # inspect bindings/vars before uploading
+npm run deploy                  # build + wrangler deploy
+
+# Verify the live deployment (the local-only restart scenario is skipped automatically)
+$env:BASE_URL = "https://read-the-room.read-the-room.workers.dev"
+node tests/integration/run.mjs
+npx playwright test
+Remove-Item Env:BASE_URL
 ```
+
+A brand-new `workers.dev` subdomain can take a minute or two to get its TLS certificate; until then HTTPS handshakes fail.
