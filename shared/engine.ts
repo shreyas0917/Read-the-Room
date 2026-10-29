@@ -418,9 +418,14 @@ function tick(s: RoomState, now: number): void {
   }
   const host = s.hostId ? s.players[s.hostId] : undefined;
   if (host && !host.connected && host.disconnectedAt !== null && now - host.disconnectedAt >= HOST_GRACE_MS) {
-    const next = playersBySeat(s).find((p) => p.connected && p.id !== host.id && p.role === "player");
+    const next = hostSuccessor(s, host.id);
     if (next) s.hostId = next.id;
   }
+}
+
+/** Who would take over from a departed host: the earliest-seated connected player. */
+function hostSuccessor(s: RoomState, hostId: string): Player | undefined {
+  return playersBySeat(s).find((p) => p.connected && p.id !== hostId && p.role === "player");
 }
 
 /** Invariants restored after every action. */
@@ -467,7 +472,11 @@ function settle(s: RoomState, now: number): void {
 // ---------------------------------------------------------------------------
 // Scheduling helpers for the Durable Object alarm.
 
-/** Earliest future time at which `tick` could change the state, or null. */
+/**
+ * Earliest time at which `tick` could change the state, or null. Invariant
+ * (tested): right after a tick at time t, this is null or later than t —
+ * otherwise the Durable Object would re-arm its alarm in a tight loop.
+ */
 export function nextWakeTime(s: RoomState): number | null {
   const times: number[] = [];
   if (s.deadline !== null) times.push(s.deadline);
@@ -476,8 +485,13 @@ export function nextWakeTime(s: RoomState): number | null {
       if (!p.connected && p.disconnectedAt !== null) times.push(p.disconnectedAt + LOBBY_GRACE_MS);
     }
   }
+  // Host hand-over only needs a wake-up if someone could take over. Without
+  // this check, a room whose players had all left re-armed its alarm every
+  // 50 ms until it was deleted (~12,000 writes per abandoned room).
   const host = s.hostId ? s.players[s.hostId] : undefined;
-  if (host && !host.connected && host.disconnectedAt !== null) times.push(host.disconnectedAt + HOST_GRACE_MS);
+  if (host && !host.connected && host.disconnectedAt !== null && hostSuccessor(s, host.id)) {
+    times.push(host.disconnectedAt + HOST_GRACE_MS);
+  }
   if (s.emptySince !== null) times.push(s.emptySince + ABANDON_MS);
   return times.length ? Math.min(...times) : null;
 }

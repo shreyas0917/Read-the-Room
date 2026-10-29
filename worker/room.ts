@@ -198,7 +198,16 @@ export class Room extends DurableObject<Env> {
       return;
     }
     const res = applyAction(s, { type: "tick" }, now);
-    if (res.ok) this.commit(res.state, now);
+    if (!res.ok) return;
+    if (JSON.stringify(res.state) === JSON.stringify(s)) {
+      // Nothing to do: write nothing, and only re-arm for a genuinely future
+      // time, so a scheduling bug can never become a write/alarm loop.
+      const wake = nextWakeTime(s);
+      if (wake !== null && wake > now) await this.ctx.storage.setAlarm(wake);
+      else await this.ctx.storage.deleteAlarm();
+      return;
+    }
+    this.commit(res.state, now);
   }
 
   // --- Handlers --------------------------------------------------------------

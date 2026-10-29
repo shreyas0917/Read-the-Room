@@ -4,6 +4,18 @@ Reviewed against `main` at `b5fd71f` (identical to production version `44ff590f`
 
 **Legend.** *Confirmed* = reproduced (locally) or directly observed. *Potential* = follows from code or docs but not demonstrated. *Fixed* = changed in this phase, with a regression test.
 
+## Incident 2026-10-29: free-plan row-write quota exhausted (critical, fixed locally)
+
+**What happened.** Right after deploying Phase D (version `1dca6943`), `POST /api/rooms` returned HTTP 500 / error 1101. `wrangler tail` showed `Exceeded allowed rows written in Durable Objects free tier.` Every room write fails until the daily limit resets at 00:00 UTC.
+
+**Root cause (in every version since Milestone 1, not introduced by Phase D).** `nextWakeTime` scheduled a host hand-over wake-up whenever the host was disconnected, even when nobody could take over. Once all players had left, which is how every game ends, that wake time stayed in the past. The Durable Object therefore re-armed its alarm every 50 ms and wrote state on each tick until the room was deleted 10 minutes later: about 1,200 alarms a minute (reproduced in a unit simulation), ≈ 12,000 writes per finished game (≈ 24,000 rows on the previous version, which wrote two rows per commit). A few finished test games on production used up the 100,000 rows/day.
+
+**Why the review missed it.** The capacity estimate above counted writes per *played* game and assumed alarms fire only at real deadlines; local runtimes have no quotas, so nothing failed locally.
+
+**Fix.** (1) The engine only schedules the hand-over wake-up when a successor exists. (2) Safety net in the Durable Object: an alarm whose tick changes nothing writes nothing and never re-arms a time that is already due. **Tests:** `tests/unit/alarms.test.ts` simulates the alarm loop for abandoned rooms (final screen, mid-game, spectator-only, lobby) and asserts that after every tick the next wake-up is in the future. Four of these fail against the deployed engine and pass with the fix.
+
+**Lesson.** Any timer that re-arms itself must be tested for "does it make progress?", not just "does it fire".
+
 ## Summary
 
 | # | Finding | Type | Severity | Status | Needed before showcase? |
