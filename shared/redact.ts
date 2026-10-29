@@ -61,7 +61,7 @@ export function viewFor(s: RoomState, viewerId: string | null, now: number): Cli
       answerCount: r.participants.filter((id) => r.answers[id] !== undefined).length,
       yourAnswer: viewer ? (r.answers[viewer.id] ?? null) : null,
       wildcardId: r.wildcardId,
-      predictions: r.participants.map((id) => ({
+      guesses: r.participants.map((id) => ({
         playerId: id,
         value: r.predictions[id] ?? null,
         score: r.scores[id] ?? { prediction: null, error: null, base: 0, bullseye: 0, wildcard: 0, total: 0 },

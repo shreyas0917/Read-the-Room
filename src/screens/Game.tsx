@@ -143,7 +143,7 @@ export function RevealScreen(props: Props) {
   const rv = view.reveal;
   if (!rv) return null;
   const byId = new Map(view.players.map((p) => [p.id, p]));
-  const rows = rv.predictions
+  const rows = rv.guesses
     .map((pr) => ({ ...pr, player: byId.get(pr.playerId) }))
     .filter((r): r is typeof r & { player: PlayerView } => !!r.player)
     .sort((a, b) => b.score.total - a.score.total);

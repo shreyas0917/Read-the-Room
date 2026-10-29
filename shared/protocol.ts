@@ -155,7 +155,7 @@ export interface RevealView {
   answerCount: number;
   yourAnswer: number | null;
   wildcardId: string | null;
-  predictions: PredictionView[];
+  guesses: PredictionView[];
 }
 
 export interface Standing {

@@ -8,7 +8,7 @@
 export { Room } from "./room";
 
 /** No I, L, O (look like 1/0); codes are 4 letters → 23^4 ≈ 280k combinations. */
-export const CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ";
+const CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ";
 const CODE_RE = /^[ABCDEFGHJKMNPQRSTUVWXYZ]{4}$/;
 
 // Best-effort per-isolate limiter for room creation. Each Room also enforces
