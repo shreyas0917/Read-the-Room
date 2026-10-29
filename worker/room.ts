@@ -86,11 +86,14 @@ export class Room extends DurableObject<Env> {
 
   // --- RPC from the front Worker -------------------------------------------
 
-  /** Creates the room if this code is free. Returns false if it's in use. */
-  async init(code: string): Promise<boolean> {
+  /**
+   * Creates the room if this code is free. `testSeed` is only ever passed by
+   * the front Worker when the deployment sets ALLOW_TEST_SEED (test env).
+   */
+  async init(code: string, testSeed?: number): Promise<boolean> {
     const now = Date.now();
     if (this.state && !isAbandoned(this.state, now)) return false;
-    const seed = crypto.getRandomValues(new Uint32Array(1))[0] ?? 1;
+    const seed = testSeed ?? crypto.getRandomValues(new Uint32Array(1))[0] ?? 1;
     const scale = Math.min(1, Math.max(0.05, Number(this.env.TIMER_SCALE) || 1));
     this.tokens = {};
     this.commit(createRoom(code, seed, now, scale), now);

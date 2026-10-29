@@ -26,8 +26,17 @@ Open the URL in a normal window and a private window (or on your phone on the sa
 | `npm run preview` | Serve the production build in workerd |
 | `npm test` | Unit tests (engine, scoring, Echo Rounds, redaction, protocol) |
 | `npm run test:integration` | Starts the app (2× faster timers via `CLOUDFLARE_ENV=test`) and plays real multi-client games over WebSockets, including every Echo mode and full runtime restarts mid-game and mid-Echo |
-| `npm run test:e2e` | Builds, serves, and plays a full game in two browser contexts with Playwright |
+| `npm run test:e2e` | Playwright: a full 2-device game against the production build, plus a 4-device "Who said it?" game (consent, privacy, keyboard, reconnects) against a local seedable fixture server |
 | `npm run deploy` | Build and deploy to Cloudflare |
+
+### Test-only Wrangler environments
+
+| Env | Used by | Settings |
+|---|---|---|
+| `test` | integration suite | timers ×0.5, `ALLOW_TEST_SEED` |
+| `e2e` | `*.fixture.spec.ts` browser tests | real timers, `ALLOW_TEST_SEED` |
+
+With `ALLOW_TEST_SEED=1`, `POST /api/rooms?seed=N` fixes the room's PRNG seed so a test can know which Echo mode comes up. Production never defines it (check with `npx wrangler deploy --dry-run`), so `?seed` is ignored there and seeds come from `crypto.getRandomValues`. A seed only decides prompt order and Echo selection, never answers, tokens or identities.
 
 ## Architecture
 

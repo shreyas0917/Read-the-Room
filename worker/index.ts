@@ -48,9 +48,17 @@ export default {
       if (request.method !== "POST") return json({ error: "Method not allowed" }, 405);
       const ip = request.headers.get("CF-Connecting-IP") ?? "local";
       if (!allowCreate(ip, Date.now())) return json({ error: "Too many rooms created. Try again in a minute." }, 429);
+      // Test fixture: a fixed seed makes Echo Round selection reproducible in
+      // browser tests. Only honoured when the deployment explicitly enables it
+      // (the `test` env in wrangler.jsonc); production ignores ?seed entirely.
+      const seedParam = url.searchParams.get("seed");
+      const testSeed =
+        env.ALLOW_TEST_SEED === "1" && seedParam && /^\d{1,9}$/.test(seedParam)
+          ? Number(seedParam)
+          : undefined;
       for (let attempt = 0; attempt < 8; attempt++) {
         const code = randomCode();
-        if (await env.ROOMS.getByName(code).init(code)) return json({ code }, 201);
+        if (await env.ROOMS.getByName(code).init(code, testSeed)) return json({ code }, 201);
       }
       return json({ error: "Could not allocate a room code" }, 503);
     }

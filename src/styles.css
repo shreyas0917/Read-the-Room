@@ -1262,3 +1262,22 @@ input {
     transform: scale(0.4);
   }
 }
+
+.option {
+  position: relative;
+}
+
+.option__check {
+  position: absolute;
+  top: 4px;
+  right: 8px;
+  font-weight: 800;
+  color: var(--lime);
+}
+
+.option:focus-visible,
+.segmented button:focus-visible,
+.switch:focus-visible {
+  outline: 3px solid var(--lime);
+  outline-offset: 3px;
+}

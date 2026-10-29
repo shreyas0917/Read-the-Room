@@ -646,6 +646,27 @@ async function deadlinesWithoutSubmissions() {
   B.close();
 }
 
+async function seedFixture() {
+  // Test env only (ALLOW_TEST_SEED): same seed → same prompt order. Production
+  // never sets ALLOW_TEST_SEED, so ?seed is ignored there.
+  const prompts = [];
+  for (let i = 0; i < 2; i++) {
+    const r = await fetch(`${BASE}/api/rooms?seed=4242`, { method: "POST" });
+    const { code } = await r.json();
+    const [A, B] = [new Client("A"), new Client("B")];
+    await A.connect(code);
+    await B.connect(code);
+    await A.hello("A");
+    await B.hello("B");
+    A.send({ t: "start" });
+    const v = await A.until((x) => x.phase === "answer", "started");
+    prompts.push(v.prompt.id);
+    A.close();
+    B.close();
+  }
+  eq(prompts[0], prompts[1], "seeded rooms get the same first prompt");
+}
+
 async function rateLimit() {
   const code = await createRoom();
   const c = new Client("Spam");
@@ -735,6 +756,7 @@ try {
   await scenario("Echo Rounds: all three modes with consent, Who Said It privacy, independent scoring", echoModes);
   await scenario("deadlines advance with no submissions", deadlinesWithoutSubmissions);
   await scenario("per-socket rate limiting", rateLimit);
+  if (!EXTERNAL) await scenario("seedable rooms in the test env (fixture for deterministic browser tests)", seedFixture);
   if (!EXTERNAL) await scenario("room state and an in-progress Echo Round survive full runtime restarts", survivesRestart);
 } finally {
   await stopServer();

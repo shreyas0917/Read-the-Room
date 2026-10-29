@@ -3,6 +3,7 @@ import QRCode from "qrcode";
 import type { ClientMessage, ClientView } from "../../shared/protocol";
 import { ROUND_OPTIONS, MIN_PLAYERS, MAX_PLAYERS } from "../../shared/rules";
 import { Button, PlayerChip } from "../components/ui";
+import { useRadioKeys } from "../components/useRadioKeys";
 
 export function Lobby({ view, send }: { view: ClientView; send: (m: ClientMessage) => void }) {
   const link = `${location.origin}/r/${view.code}`;
@@ -77,19 +78,7 @@ export function Lobby({ view, send }: { view: ClientView; send: (m: ClientMessag
           <>
             <div className="field">
               <span className="field__label">Rounds</span>
-              <div className="segmented" role="radiogroup" aria-label="Number of rounds">
-                {ROUND_OPTIONS.map((n) => (
-                  <button
-                    key={n}
-                    role="radio"
-                    aria-checked={view.settings.rounds === n}
-                    className={view.settings.rounds === n ? "is-on" : ""}
-                    onClick={() => send({ t: "settings", rounds: n })}
-                  >
-                    {n}
-                  </button>
-                ))}
-              </div>
+              <RoundPicker value={view.settings.rounds} onPick={(rounds) => send({ t: "settings", rounds })} />
             </div>
             <Button big disabled={ready < MIN_PLAYERS} onClick={() => send({ t: "start" })}>
               {ready < MIN_PLAYERS ? "Need 2 players to start" : `Start game · ${ready} players`}
@@ -102,6 +91,24 @@ export function Lobby({ view, send }: { view: ClientView; send: (m: ClientMessag
         )}
       </section>
     </main>
+  );
+}
+
+function RoundPicker({ value, onPick }: { value: number; onPick: (n: (typeof ROUND_OPTIONS)[number]) => void }) {
+  const idx = ROUND_OPTIONS.findIndex((n) => n === value);
+  const { getProps } = useRadioKeys({
+    count: ROUND_OPTIONS.length,
+    value: idx < 0 ? null : idx,
+    onChange: (i) => onPick(ROUND_OPTIONS[i] ?? ROUND_OPTIONS[0]),
+  });
+  return (
+    <div className="segmented" role="radiogroup" aria-label="Number of rounds">
+      {ROUND_OPTIONS.map((n, i) => (
+        <button key={n} {...getProps(i)} className={value === n ? "is-on" : ""} onClick={() => onPick(n)}>
+          {n}
+        </button>
+      ))}
+    </div>
   );
 }
 

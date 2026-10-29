@@ -20,7 +20,15 @@
       "durable_objects": {
         "bindings": [{ "name": "ROOMS", "class_name": "Room" }]
       },
-      "vars": { "TIMER_SCALE": "0.5" }
+      "vars": { "TIMER_SCALE": "0.5", "ALLOW_TEST_SEED": "1" }
+    },
+    // Browser tests that need a reproducible Echo Round (CLOUDFLARE_ENV=e2e):
+    // real-time timers, seedable rooms. Never deployed.
+    "e2e": {
+      "durable_objects": {
+        "bindings": [{ "name": "ROOMS", "class_name": "Room" }]
+      },
+      "vars": { "TIMER_SCALE": "1", "ALLOW_TEST_SEED": "1" }
     }
   }
 }

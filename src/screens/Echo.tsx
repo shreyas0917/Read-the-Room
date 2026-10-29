@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import type { ClientView, EchoView, PlayerView } from "../../shared/protocol";
 import { Avatar, Button, DotPlot } from "../components/ui";
+import { useRadioKeys } from "../components/useRadioKeys";
 import { RoundHeader, Spectating, SubmittedStrip, type Props } from "./Game";
 
 const METRIC_TEXT = {
@@ -25,13 +26,13 @@ function Question({ echo }: { echo: EchoView }) {
           <p className="echo-q__src">
             <Quote text={echo.prompt?.text ?? ""} />
           </p>
-          <h1 className="echo-q__ask">
+          <h1 className="echo-q__ask" id="echo-ask">
             How many of the {echo.max} answers were <b>higher than {echo.threshold}</b>?
           </h1>
         </>
       );
     case "pattern":
-      return <h1 className="echo-q__ask">Which question {METRIC_TEXT[echo.metric ?? "highest"]}</h1>;
+      return <h1 className="echo-q__ask" id="echo-ask">Which question {METRIC_TEXT[echo.metric ?? "highest"]}</h1>;
     case "who":
       return (
         <>
@@ -39,7 +40,7 @@ function Question({ echo }: { echo: EchoView }) {
           <p className="echo-q__src">
             <Quote text={echo.prompt?.text ?? ""} />
           </p>
-          <h1 className="echo-q__ask">
+          <h1 className="echo-q__ask" id="echo-ask">
             Someone answered <b>{echo.value}</b>. Who was it?
           </h1>
         </>
@@ -79,17 +80,26 @@ export function EchoScreen(props: Props) {
   const locked = view.mine.echo;
   const youId = view.you?.id;
 
-  let options: { value: number; node: ReactNode; disabled?: boolean }[] = [];
+  let options: Option[] = [];
   if (echo.kind === "count") {
-    options = Array.from({ length: (echo.max ?? 0) + 1 }, (_, i) => ({ value: i, node: <span className="opt-num">{i}</span> }));
+    options = Array.from({ length: (echo.max ?? 0) + 1 }, (_, i) => ({
+      value: i,
+      label: String(i),
+      node: <span className="opt-num">{i}</span>,
+    }));
   } else if (echo.kind === "pattern") {
-    options = (echo.promptOptions ?? []).map((p, i) => ({ value: i, node: <span className="opt-text">{p.text}</span> }));
+    options = (echo.promptOptions ?? []).map((p, i) => ({
+      value: i,
+      label: p.text,
+      node: <span className="opt-text">{p.text}</span>,
+    }));
   } else {
     options = (echo.playerOptions ?? []).map((id, i) => {
       const p = byId.get(id);
       return {
         value: i,
         disabled: id === youId,
+        label: id === youId ? `${p?.name ?? "?"} (you, not selectable)` : (p?.name ?? "?"),
         node: (
           <span className="opt-player">
             {p && <Avatar index={p.avatar} size={36} />}
@@ -124,20 +134,7 @@ export function EchoScreen(props: Props) {
         </section>
       ) : (
         <section className="card">
-          <div className={`options options--${echo.kind}`} role="radiogroup" aria-label="Your answer">
-            {options.map((o) => (
-              <button
-                key={o.value}
-                role="radio"
-                aria-checked={pick === o.value}
-                disabled={o.disabled}
-                className={`option${pick === o.value ? " is-on" : ""}`}
-                onClick={() => setPick(o.value)}
-              >
-                {o.node}
-              </button>
-            ))}
-          </div>
+          <EchoOptions kind={echo.kind} options={options} pick={pick} onPick={setPick} />
           <Button big disabled={pick === null} onClick={() => pick !== null && send({ t: "echo", choice: pick })}>
             {pick === null ? "Pick one" : "Lock it in"}
           </Button>
@@ -145,6 +142,43 @@ export function EchoScreen(props: Props) {
       )}
       <SubmittedStrip view={view} />
     </main>
+  );
+}
+
+interface Option {
+  value: number;
+  node: ReactNode;
+  label: string;
+  disabled?: boolean;
+}
+
+function EchoOptions({ kind, options, pick, onPick }: { kind: EchoView["kind"]; options: Option[]; pick: number | null; onPick: (v: number) => void }) {
+  const { getProps } = useRadioKeys({
+    count: options.length,
+    value: pick,
+    onChange: onPick,
+    isDisabled: (i) => !!options[i]?.disabled,
+  });
+  return (
+    <div className={`options options--${kind}`} role="radiogroup" aria-labelledby="echo-ask">
+      {options.map((o, i) => (
+        <button
+          key={o.value}
+          {...getProps(i)}
+          aria-label={o.label}
+          disabled={o.disabled}
+          className={`option${pick === o.value ? " is-on" : ""}`}
+          onClick={() => onPick(o.value)}
+        >
+          {o.node}
+          {pick === o.value && (
+            <span className="option__check" aria-hidden="true">
+              ✓
+            </span>
+          )}
+        </button>
+      ))}
+    </div>
   );
 }
 
