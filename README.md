@@ -79,7 +79,7 @@ Details: [docs/RULES.md](docs/RULES.md) · [docs/ECHO_ROUNDS.md](docs/ECHO_ROUND
 
 ## Deploying
 
-Live: **https://read-the-room.read-the-room.workers.dev** (version `44ff590f`: Echo Rounds, awards and Room Report; Phase D hardening is local only until deployed)
+Live: **https://read-the-room.read-the-room.workers.dev** (version `b2ad83bf`: Echo Rounds, awards, Room Report, Phase D hardening and the alarm-loop hotfix)
 
 Rollback to the previous version: `npx wrangler rollback <version-id> --name read-the-room` (see `npx wrangler deployments list`).
 

@@ -14,6 +14,8 @@ Reviewed against `main` at `b5fd71f` (identical to production version `44ff590f`
 
 **Fix.** (1) The engine only schedules the hand-over wake-up when a successor exists. (2) Safety net in the Durable Object: an alarm whose tick changes nothing writes nothing and never re-arms a time that is already due. **Tests:** `tests/unit/alarms.test.ts` simulates the alarm loop for abandoned rooms (final screen, mid-game, spectator-only, lobby) and asserts that after every tick the next wake-up is in the future. Four of these fail against the deployed engine and pass with the fix.
 
+**Deployed.** Hotfix version `b2ad83bf` went live on 2026-10-29 at about 14:58 UTC (rollback target `1dca6943`). Room creation keeps failing with the quota error until the daily reset at 00:00 UTC; the fix stops it from recurring.
+
 **Lesson.** Any timer that re-arms itself must be tested for "does it make progress?", not just "does it fire".
 
 ## Summary
