@@ -258,6 +258,8 @@ async function fullGame() {
   await A.hello("Ana");
   await B.hello("Ben");
   await C.hello("Cy");
+  const welcome = A.msgs.find((m) => m.t === "welcome");
+  eq(welcome.protocol, 2, "server announces its protocol version");
 
   // Room isolation: identities are distinct and the first joiner is host.
   assert(new Set([A.playerId, B.playerId, C.playerId]).size === 3, "distinct player ids");
@@ -673,6 +675,50 @@ async function deadlinesWithoutSubmissions() {
   B.close();
 }
 
+async function squatters() {
+  // Idle sockets that never say hello must not be able to lock a room.
+  const code = await createRoom();
+  const host = new Client("Host");
+  await host.connect(code);
+  await host.hello("Host");
+  const squat = [];
+  for (let i = 0; i < 40; i++) {
+    const c = new Client(`idle${i}`);
+    try {
+      await c.connect(code);
+      squat.push(c);
+    } catch {}
+  }
+  assert(squat.length >= 31, `opened idle sockets (${squat.length})`);
+  const guest = new Client("Guest");
+  await guest.connect(code); // evicts the oldest idle socket
+  await guest.hello("Guest");
+  await host.until((v) => v.players.length === 2, "guest joined a squatted room");
+  // An existing player can still come back.
+  host.close();
+  await guest.until((v) => v.players.find((p) => p.id === host.playerId)?.connected === false, "host away");
+  await host.connect(code);
+  await host.resume();
+  await host.until((v) => v.you?.id === host.playerId, "host resumed despite squatters");
+  // The oldest idle socket was evicted server-side: its hello goes unanswered.
+  // (The local runtime doesn't deliver the close frame to the evicted client,
+  // which is why the browser client has a liveness watchdog.)
+  const oldest = squat[0];
+  oldest.send({ t: "hello", name: "Oldest" });
+  await sleep(1500);
+  assert(!oldest.msgs.some((m) => m.t === "welcome"), "evicted socket is no longer served");
+  // A slow joiner (connected, no hello for > 10 s) is NOT evicted while the
+  // room has space.
+  const room2 = await createRoom();
+  const slow = new Client("Slow");
+  await slow.connect(room2);
+  await sleep(11_000);
+  await slow.hello("Slow");
+  assert(slow.view?.you?.id === slow.playerId, "slow typer still joins normally");
+  slow.close();
+  for (const c of [host, guest, ...squat]) c.close();
+}
+
 async function seedFixture() {
   // Test env only (ALLOW_TEST_SEED): same seed → same prompt order. Production
   // never sets ALLOW_TEST_SEED, so ?seed is ignored there.
@@ -698,9 +744,13 @@ async function rateLimit() {
   const code = await createRoom();
   const c = new Client("Spam");
   await c.connect(code);
-  for (let i = 0; i < 60; i++) c.send({ t: "ping" });
+  // Keep-alive pings are answered by the runtime's auto-response (they never
+  // reach the room), so flood with a real message instead.
+  c.send({ t: "ping" });
+  await c.expect((m) => m.t === "pong", "auto-response pong");
+  for (let i = 0; i < 60; i++) c.send({ t: "next" });
   await c.expectError("rate_limited");
-  for (let i = 0; i < 60; i++) if (!c.closed) c.send({ t: "ping" });
+  for (let i = 0; i < 60; i++) if (!c.closed) c.send({ t: "next" });
   await new Promise((r) => setTimeout(r, 500));
   assert(c.closed, "socket closed after hard rate limit");
 }
@@ -783,6 +833,7 @@ try {
   await scenario("Echo Rounds: all three modes with consent, Who Said It privacy, independent scoring", echoModes);
   await scenario("deadlines advance with no submissions", deadlinesWithoutSubmissions);
   await scenario("per-socket rate limiting", rateLimit);
+  await scenario("idle unauthenticated sockets can't lock players out", squatters);
   if (!EXTERNAL) await scenario("seedable rooms in the test env (fixture for deterministic browser tests)", seedFixture);
   if (!EXTERNAL) await scenario("room state and an in-progress Echo Round survive full runtime restarts", survivesRestart);
 } finally {

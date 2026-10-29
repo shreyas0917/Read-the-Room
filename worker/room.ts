@@ -12,14 +12,28 @@
 
 import { DurableObject } from "cloudflare:workers";
 import { applyAction, createRoom, isAbandoned, migrateState, nextWakeTime, type EngineAction } from "../shared/engine";
-import { parseClientMessage, type ClientMessage, type ErrorCode, type RoomState, type ServerMessage } from "../shared/protocol";
+import {
+  parseClientMessage,
+  PROTOCOL_VERSION,
+  type ClientMessage,
+  type ErrorCode,
+  type RoomState,
+  type ServerMessage,
+} from "../shared/protocol";
 import { viewFor } from "../shared/redact";
 
 interface Attachment {
   pid: string | null;
+  /** When the socket connected (ms). */
+  at: number;
+  /** Closed by us; ignore it until the runtime drops it. */
+  dead?: boolean;
 }
 
 const MAX_SOCKETS = 32;
+/** Keep-alive frames, answered by the runtime without waking the object. */
+const PING = JSON.stringify({ t: "ping" } satisfies ClientMessage);
+const PONG = JSON.stringify({ t: "pong" } satisfies ServerMessage);
 const RATE_WINDOW_MS = 10_000;
 const RATE_SOFT_LIMIT = 40;
 const RATE_HARD_LIMIT = 80;
@@ -76,9 +90,13 @@ export class Room extends DurableObject<Env> {
   /** sha256(token) → playerId. Raw tokens are never stored. */
   private tokens: Record<string, string>;
   private rates = new Map<WebSocket, { start: number; count: number }>();
+  /** Whether `tokens` changed since the last write (saves a storage row per action). */
+  private tokensDirty = false;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
+    // Pings never wake the object: no duration or request is billed for them.
+    ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair(PING, PONG));
     // Rooms saved by an older deploy are upgraded in place on first load.
     this.state = migrateState(ctx.storage.kv.get<unknown>("state"));
     this.tokens = ctx.storage.kv.get<Record<string, string>>("tokens") ?? {};
@@ -96,6 +114,7 @@ export class Room extends DurableObject<Env> {
     const seed = testSeed ?? crypto.getRandomValues(new Uint32Array(1))[0] ?? 1;
     const scale = Math.min(1, Math.max(0.05, Number(this.env.TIMER_SCALE) || 1));
     this.tokens = {};
+    this.tokensDirty = true;
     this.commit(createRoom(code, seed, now, scale), now);
     return true;
   }
@@ -115,13 +134,13 @@ export class Room extends DurableObject<Env> {
     if (request.headers.get("Upgrade")?.toLowerCase() !== "websocket") {
       return new Response("Expected WebSocket", { status: 426 });
     }
-    if (this.ctx.getWebSockets().length >= MAX_SOCKETS) {
+    if (!this.admit(Date.now())) {
       return Response.json({ error: "Room is busy" }, { status: 503 });
     }
     const pair = new WebSocketPair();
     const [client, server] = [pair[0], pair[1]];
     this.ctx.acceptWebSocket(server);
-    server.serializeAttachment({ pid: null } satisfies Attachment);
+    server.serializeAttachment({ pid: null, at: Date.now() } satisfies Attachment);
     return new Response(null, { status: 101, webSocket: client });
   }
 
@@ -197,8 +216,9 @@ export class Room extends DurableObject<Env> {
     const res = applyAction(s, { type: "join", playerId: pid, name }, now);
     if (!res.ok) return sendError(ws, res.error);
     this.tokens[hash] = pid;
+    this.tokensDirty = true;
     this.attachment(ws, pid);
-    send(ws, { t: "welcome", playerId: pid, token, resumed: false });
+    send(ws, { t: "welcome", playerId: pid, token, resumed: false, protocol: PROTOCOL_VERSION });
     this.commit(res.state, now);
   }
 
@@ -219,7 +239,7 @@ export class Room extends DurableObject<Env> {
     }
     this.attachment(ws, playerId);
     const now = Date.now();
-    send(ws, { t: "welcome", playerId, resumed: true });
+    send(ws, { t: "welcome", playerId, resumed: true, protocol: PROTOCOL_VERSION });
     const res = applyAction(s, { type: "connect", playerId }, now);
     if (res.ok) this.commit(res.state, now);
   }
@@ -260,10 +280,16 @@ export class Room extends DurableObject<Env> {
     this.state = next;
     // Drop credentials for seats that no longer exist.
     for (const [hash, pid] of Object.entries(this.tokens)) {
-      if (!next.players[pid]) delete this.tokens[hash];
+      if (!next.players[pid]) {
+        delete this.tokens[hash];
+        this.tokensDirty = true;
+      }
     }
     this.ctx.storage.kv.put("state", next);
-    this.ctx.storage.kv.put("tokens", this.tokens);
+    if (this.tokensDirty) {
+      this.ctx.storage.kv.put("tokens", this.tokens);
+      this.tokensDirty = false;
+    }
     const wake = nextWakeTime(next);
     if (wake === null) void this.ctx.storage.deleteAlarm();
     else void this.ctx.storage.setAlarm(Math.max(wake, now + 50));
@@ -285,12 +311,39 @@ export class Room extends DurableObject<Env> {
   }
 
   private attachment(ws: WebSocket, set?: string | null): Attachment {
-    if (set !== undefined) {
-      const next: Attachment = { pid: set };
-      ws.serializeAttachment(next);
-      return next;
+    // Attachments written by older builds only had `pid`.
+    const raw = ws.deserializeAttachment() as Partial<Attachment> | null;
+    const cur: Attachment = { pid: raw?.pid ?? null, at: raw?.at ?? 0, ...(raw?.dead ? { dead: true } : {}) };
+    if (set === undefined) return cur;
+    const next: Attachment = { ...cur, pid: set };
+    ws.serializeAttachment(next);
+    return next;
+  }
+
+  private drop(ws: WebSocket, reason: string): void {
+    ws.serializeAttachment({ ...this.attachment(ws), pid: null, dead: true } satisfies Attachment);
+    this.rates.delete(ws);
+    try {
+      ws.close(4008, reason);
+    } catch {
+      // already closing
     }
-    return (ws.deserializeAttachment() as Attachment | null) ?? { pid: null };
+  }
+
+  /**
+   * Decides whether a new socket may connect. Sockets that never identify
+   * themselves can't lock a room: at the cap, the oldest of them makes way.
+   * (No idle timeout otherwise — someone still typing their name holds an
+   * unidentified socket too.) Identified sockets are bounded by seats, one
+   * live socket per seat, well under the cap.
+   */
+  private admit(_now: number): boolean {
+    const open = this.ctx.getWebSockets().filter((ws) => !this.attachment(ws).dead);
+    if (open.length < MAX_SOCKETS) return true;
+    const idle = open.filter((ws) => !this.attachment(ws).pid).sort((a, b) => this.attachment(a).at - this.attachment(b).at)[0];
+    if (!idle) return false;
+    this.drop(idle, "evicted");
+    return true;
   }
 
   private rateLimited(ws: WebSocket): boolean {

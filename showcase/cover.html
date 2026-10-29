@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Read the Room — cover</title>
+    <!-- Showcase cover, 1800×1200 (3:2). Render: node showcase/render-cover.mjs -->
+    <style>
+      @font-face {
+        font-family: "Bricolage";
+        src: url("../node_modules/@fontsource-variable/bricolage-grotesque/files/bricolage-grotesque-latin-wght-normal.woff2") format("woff2");
+        font-weight: 200 800;
+      }
+      @font-face {
+        font-family: "Inter";
+        src: url("../node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2") format("woff2");
+        font-weight: 100 900;
+      }
+      :root {
+        --bg: #140a2e;
+        --lime: #c6ff3d;
+        --violet: #8f7cff;
+        --text: #f4f0ff;
+        --muted: #b5aad8;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        width: 1800px;
+        height: 1200px;
+        overflow: hidden;
+      }
+      body {
+        background:
+          radial-gradient(1400px 800px at 30% -250px, #3a1d8f 0%, transparent 70%),
+          radial-gradient(900px 700px at 100% 110%, #2a1466 0%, transparent 70%),
+          var(--bg);
+        color: var(--text);
+        font-family: "Inter", sans-serif;
+        position: relative;
+      }
+      .copy {
+        position: absolute;
+        left: 120px;
+        top: 110px;
+        width: 640px;
+      }
+      .eyebrow {
+        font-weight: 800;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: var(--lime);
+        font-size: 30px;
+        margin: 0 0 28px;
+      }
+      h1 {
+        font-family: "Bricolage", sans-serif;
+        font-weight: 800;
+        font-size: 190px;
+        line-height: 0.86;
+        letter-spacing: -0.05em;
+        margin: 0;
+      }
+      h1 span {
+        display: inline-block;
+        color: var(--lime);
+        font-style: italic;
+        font-weight: 500;
+        transform: rotate(-6deg);
+      }
+      .tagline {
+        font-family: "Bricolage", sans-serif;
+        font-weight: 600;
+        font-size: 58px;
+        line-height: 1.1;
+        margin: 44px 0 0;
+        letter-spacing: -0.02em;
+      }
+      .sub {
+        color: var(--muted);
+        font-size: 32px;
+        margin: 26px 0 0;
+      }
+      /* signature motif: anonymous dots + the room's average */
+      .plot {
+        position: absolute;
+        left: 120px;
+        bottom: 80px;
+        width: 620px;
+        height: 133px;
+      }
+      .phones {
+        position: absolute;
+        right: 70px;
+        top: 70px;
+        width: 880px;
+        height: 1060px;
+      }
+      .phone {
+        position: absolute;
+        width: 390px;
+        height: 844px;
+        border-radius: 52px;
+        overflow: hidden;
+        border: 10px solid #2b1d5c;
+        box-shadow:
+          0 40px 90px rgba(0, 0, 0, 0.55),
+          0 0 0 2px #4a3a8a;
+        background: var(--bg) top / 100% auto no-repeat;
+      }
+      .p1 {
+        left: 0;
+        top: 150px;
+        transform: rotate(-7deg);
+        background-image: url("screens/05-reveal-phone.png");
+      }
+      .p2 {
+        left: 250px;
+        top: 40px;
+        z-index: 2;
+        transform: rotate(1deg);
+        background-image: url("screens/07-echo-phone.png");
+      }
+      .p3 {
+        left: 500px;
+        top: 190px;
+        transform: rotate(8deg);
+        background-image: url("screens/12-report-phone.png");
+      }
+    </style>
+  </head>
+  <body>
+    <div class="copy">
+      <p class="eyebrow">A party game for 2–8 phones</p>
+      <h1>Read<br /><span>the</span> Room</h1>
+      <p class="tagline">The answer key is<br />your friends.</p>
+      <p class="sub">Answer in secret. Predict the room.<br />Echo Rounds remember everything.</p>
+    </div>
+
+    <svg class="plot" viewBox="0 0 700 150" aria-hidden="true">
+      <line x1="0" x2="700" y1="128" y2="128" stroke="#3a2b72" stroke-width="4" />
+      <g fill="#8f7cff">
+        <circle cx="90" cy="105" r="20" />
+        <circle cx="230" cy="105" r="20" />
+        <circle cx="300" cy="105" r="20" />
+        <circle cx="300" cy="60" r="20" />
+        <circle cx="440" cy="105" r="20" />
+        <circle cx="580" cy="105" r="20" />
+      </g>
+      <circle cx="370" cy="105" r="20" fill="#c6ff3d" stroke="#fff" stroke-width="5" />
+      <line x1="345" x2="345" y1="8" y2="140" stroke="#c6ff3d" stroke-width="6" stroke-dasharray="10 9" />
+    </svg>
+
+    <div class="phones" aria-hidden="true">
+      <div class="phone p1"></div>
+      <div class="phone p2"></div>
+      <div class="phone p3"></div>
+    </div>
+  </body>
+</html>

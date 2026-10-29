@@ -72,6 +72,9 @@ export function RoomScreen({ code }: { code: string }) {
       case "final":
         body = <FinalScreen {...p} />;
         break;
+      default:
+        // A phase this build doesn't know: the server was updated mid-game.
+        body = <UpdateNeeded />;
     }
   }
 
@@ -82,6 +85,15 @@ export function RoomScreen({ code }: { code: string }) {
         <div className="banner" role="status">
           {online ? "Connection lost: reconnecting…" : "You're offline. We'll reconnect as soon as you're back."}
           <span className="banner__hint"> Your seat and score are safe.</span>
+        </div>
+      )}
+      {room.updateAvailable && (
+        <div className="banner banner--info" role="status">
+          A new version of the game is live.{" "}
+          <button className="banner__btn" onClick={() => location.reload()}>
+            Refresh
+          </button>{" "}
+          <span className="banner__hint">You'll keep your seat and score.</span>
         </div>
       )}
       <Announcer view={view} />
@@ -184,6 +196,15 @@ function JoinForm({ code, onJoin, busy, error }: { code: string; onJoin: (n: str
         )}
       </form>
     </main>
+  );
+}
+
+function UpdateNeeded() {
+  return (
+    <Centered title="The game was updated">
+      <p className="muted">Refresh to load the new version. You'll keep your seat and score.</p>
+      <Button onClick={() => location.reload()}>Refresh</Button>
+    </Centered>
   );
 }
 

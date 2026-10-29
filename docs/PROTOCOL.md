@@ -17,6 +17,8 @@ client → { t: "resume", playerId, token }           returning player
 server → { t: "welcome", playerId, resumed: true }  | { t: "error", code: "bad_token" }
 server → { t: "state", view }                       after every accepted change
 ```
+`welcome` also carries `protocol` (currently `2`). A client built for a different version shows "A new version of the game is live — Refresh", and an unknown phase shows a refresh screen instead of rendering nothing.
+
 The token (32 random bytes, base64url) is sent **once**, only to its owner. The server stores only `sha256(token)`. A newer socket for the same seat replaces the old one (`{ t: "bye", reason: "replaced" }`).
 
 ## Client messages (after joining)
@@ -37,5 +39,14 @@ Persisted state carries a schema version (`v: 2`). Rooms saved by v1 are migrate
 ## Test-only room seeds
 `POST /api/rooms?seed=N` (N up to 9 digits) fixes the room's PRNG seed **only** when the Worker has `ALLOW_TEST_SEED=1`, which exists solely in the `test` and `e2e` Wrangler environments. Production ignores the parameter.
 
+## Connections
+- **Keep-alive:** clients send `{"t":"ping"}` every 25 s; the runtime answers `{"t":"pong"}` through `setWebSocketAutoResponse`, without waking the room.
+- **Liveness watchdog (client):** reconnect if `hello`/`resume` isn't answered within 6 s, or if nothing arrives for 45 s.
+- **Admission:** at most 32 sockets per room. At the cap, the oldest socket that never sent `hello`/`resume` is evicted, so idle connections can't lock players out.
+
 ## Limits
-40 messages / 10 s per socket → `rate_limited`; 80 → socket closed (1008).
+- 40 messages / 10 s per socket → `rate_limited`; 80 → socket closed (1008).
+- Per IP (best-effort, per isolate): 10 room creations and 120 room lookups / socket upgrades per minute → `429`.
+
+## Security headers
+`public/_headers` sets a Content-Security-Policy (`default-src 'self'`, `frame-ancestors 'none'`, `object-src 'none'`, same-origin and `wss:` connections), `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy` and `Permissions-Policy` on the app. Worker responses (`/api/*`) set `nosniff` and `Cache-Control: no-store` in code, since `_headers` doesn't apply to them.

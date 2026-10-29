@@ -1615,3 +1615,42 @@ input {
 .rules__n {
   color: var(--bg);
 }
+
+.banner--info {
+  background: var(--violet);
+  color: var(--bg);
+}
+
+.banner__btn {
+  border: 0;
+  border-radius: 999px;
+  padding: 4px 12px;
+  margin: 0 4px;
+  font-weight: 800;
+  background: var(--bg);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.strip {
+  flex-wrap: wrap;
+}
+
+.strip__waiting {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.score-key {
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--muted);
+}
+
+.score-key b {
+  color: var(--text);
+}

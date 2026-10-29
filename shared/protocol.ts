@@ -7,6 +7,13 @@
 
 import { ANSWER_MAX, ANSWER_MIN, ECHO_CHOICE_MAX, NAME_MAX, ROUND_OPTIONS, type RoundCount } from "./rules";
 
+/**
+ * Bumped whenever the server can send something an older client can't show
+ * (a new phase, a new required field). Clients compare it to their own and
+ * ask the player to refresh instead of rendering a broken screen.
+ */
+export const PROTOCOL_VERSION = 2;
+
 // ---------------------------------------------------------------------------
 // Authoritative server state (never sent to clients as-is)
 
@@ -146,7 +153,7 @@ export type ErrorCode =
   | "room_closed";
 
 export type ServerMessage =
-  | { t: "welcome"; playerId: string; token?: string; resumed: boolean }
+  | { t: "welcome"; playerId: string; token?: string; resumed: boolean; protocol?: number }
   | { t: "state"; view: ClientView }
   | { t: "error"; code: ErrorCode; message: string }
   | { t: "pong" }

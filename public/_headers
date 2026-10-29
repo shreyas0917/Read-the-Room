@@ -1,0 +1,10 @@
+# Security headers for the static app (Workers Static Assets).
+# Worker-generated /api responses set their own headers in worker/index.ts.
+# connect-src: same-origin WebSocket in production (wss:), plus ws://localhost
+# for `vite preview`. style-src needs 'unsafe-inline' for React style props.
+/*
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' wss: ws://localhost:*; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()

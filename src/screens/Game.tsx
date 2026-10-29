@@ -42,6 +42,9 @@ export function useExpired(deadline: number | null, offset: number): boolean {
 export function SubmittedStrip({ view }: { view: ClientView }) {
   const ps = view.players.filter((p) => p.submitted !== null);
   const done = ps.filter((p) => p.submitted).map((p) => p.name);
+  // Once you're locked in, say who the room is waiting on.
+  const youDone = ps.some((p) => p.id === view.you?.id && p.submitted);
+  const waitingFor = youDone ? ps.filter((p) => !p.submitted).map((p) => (p.connected ? p.name : `${p.name} (away)`)) : [];
   const label = `${view.submittedCount} of ${view.expectedCount} locked in${done.length ? `: ${done.join(", ")}` : ""}`;
   return (
     <div className="strip" role="status" aria-label={label}>
@@ -56,6 +59,7 @@ export function SubmittedStrip({ view }: { view: ClientView }) {
       <span className="muted small">
         {view.submittedCount}/{view.expectedCount} locked in
       </span>
+      {waitingFor.length > 0 && <p className="strip__waiting small">Waiting for {waitingFor.join(", ")}</p>}
     </div>
   );
 }
@@ -210,6 +214,12 @@ export function RevealScreen(props: Props) {
 
       {!rv.voided && (
         <section className="card">
+          {view.round === 1 && (
+            <p className="score-key small">
+              Closer guess = more points (up to 100) · within 0.3 = <b>+50 Bullseye</b> · lone extreme answer ={" "}
+              <b>+25 Wildcard</b>
+            </p>
+          )}
           <ol className="scores">
             {rows.map((r) => (
               <li key={r.playerId} className={r.playerId === view.you?.id ? "is-you" : ""}>

@@ -116,6 +116,9 @@ export function Landing() {
         <li>
           <b>Score</b> by reading the room. Closest guess wins the round.
         </li>
+        <li>
+          <b>Echo Rounds:</b> every third round asks about what the room already said.
+        </li>
       </ol>
     </main>
   );

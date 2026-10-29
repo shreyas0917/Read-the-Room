@@ -107,6 +107,10 @@ function isHost(s: RoomState, id: string): boolean {
 
 export function applyAction(prev: RoomState, action: EngineAction, now: number): EngineResult {
   const s: RoomState = structuredClone(prev);
+  // Deadlines that have already passed take effect before anything else, so
+  // a submission that arrives after a deadline (but before the alarm fires)
+  // is judged against the phase the game has really moved on to.
+  if (action.type !== "tick") catchUp(s, now);
   const err = reduce(s, action, now);
   if (err) return fail(err);
   if (action.type !== "tick" && action.type !== "connect" && action.type !== "disconnect") s.lastActivity = now;
@@ -397,10 +401,14 @@ function playAgain(s: RoomState, id: string): ErrorCode | null {
   return null;
 }
 
+/** Applies phase deadlines that are due. Bounded: each step moves the deadline forward or clears it. */
+function catchUp(s: RoomState, now: number): void {
+  for (let i = 0; i < 4 && s.deadline !== null && s.deadline <= now; i++) advance(s, now);
+}
+
 /** Time-driven transitions: phase deadlines, grace periods, host migration. */
 function tick(s: RoomState, now: number): void {
-  // Bounded loop: each step pushes the deadline into the future or clears it.
-  for (let i = 0; i < 4 && s.deadline !== null && s.deadline <= now; i++) advance(s, now);
+  catchUp(s, now);
 
   // Seats are only reclaimed in the lobby, so final standings stay intact.
   if (s.phase === "lobby") {

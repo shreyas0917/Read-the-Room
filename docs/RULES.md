@@ -16,6 +16,7 @@ Source of truth: `shared/rules.ts`, `shared/scoring.ts`, `shared/engine.ts`, `sh
 | REVEAL — anonymous dot plot, scores | 12 s | host taps *Next* |
 
 - One submission per phase. Answers and predictions **cannot be changed** once locked.
+- **Deadlines are enforced on arrival:** a submission (or host *Next*) that reaches the server at or after the phase deadline is rejected, even if the timer event that advances the phase hasn't run yet.
 - Participants are the seated players at round start. Spectators (mid-game joiners) cannot submit.
 - Players who miss the answer deadline may still predict; they're excluded from the average.
 - Fewer than 2 answers at the answer deadline → round **voided** (skips PREDICT, no points).

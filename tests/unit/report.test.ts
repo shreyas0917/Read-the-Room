@@ -17,7 +17,7 @@ function play(
   n: number,
   rounds: RoundCount,
   plan: Plan,
-  opts: { consent?: number[]; seed?: number; echo?: (s: RoomState) => RoomState; stopBefore?: number } = {},
+  opts: { consent?: number[]; seed?: number; echo?: (s: RoomState, now: number) => RoomState; stopBefore?: number } = {},
 ): RoomState {
   let s = lobby(n, opts.seed);
   for (const i of opts.consent ?? []) s = must(s, { type: "consent", playerId: pid(i), value: true });
@@ -26,7 +26,8 @@ function play(
   let t = T0;
   while (s.phase !== "final") {
     if (opts.stopBefore && s.round === opts.stopBefore) break;
-    if (s.phase === "echo") s = (opts.echo ?? echoAll)(s);
+    // The clock only moves forward: Echo picks happen at the current time.
+    if (s.phase === "echo") s = (opts.echo ?? echoAll)(s, t);
     else {
       const step = plan[s.round];
       if (!step) throw new Error(`no plan for round ${s.round}`);
@@ -203,10 +204,10 @@ describe("report privacy", () => {
     };
     let checked = false;
     for (let seed = 1; seed < 300 && !checked; seed++) {
-      const leaveIfWho = (s: RoomState) => {
+      const leaveIfWho = (s: RoomState, now: number) => {
         const ch = s.current?.echo;
-        if (ch?.kind === "who" && s.round === 3) s = must(s, { type: "leave", playerId: ch.subjectId });
-        return echoAll(s);
+        if (ch?.kind === "who" && s.round === 3) s = must(s, { type: "leave", playerId: ch.subjectId }, now);
+        return echoAll(s, now);
       };
       const s = play(5, 6, { ...plan, 4: { a: plan[4]!.a, p: plan[4]!.p }, 5: plan[5]! }, { consent: [1, 2, 3, 4, 5], seed, stopBefore: 4, echo: leaveIfWho });
       const r3 = s.history.find((h) => h.index === 3);

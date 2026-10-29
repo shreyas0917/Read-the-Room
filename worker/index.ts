@@ -11,22 +11,22 @@ export { Room } from "./room";
 const CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ";
 const CODE_RE = /^[ABCDEFGHJKMNPQRSTUVWXYZ]{4}$/;
 
-// Best-effort per-isolate limiter for room creation. Each Room also enforces
-// its own per-socket message limits, so this only needs to stop casual abuse.
-const CREATE_WINDOW_MS = 60_000;
-const CREATE_LIMIT = 10;
-const createLog = new Map<string, number[]>();
+// Best-effort per-isolate, per-IP sliding-window limiters. They stop casual
+// abuse (room spam, code enumeration burning the daily request quota); each
+// Room also limits messages per socket. Limits are generous because a whole
+// classroom can share one IP.
+const WINDOW_MS = 60_000;
+const LIMITS = { create: 10, lookup: 120 } as const;
+const logs = { create: new Map<string, number[]>(), lookup: new Map<string, number[]>() };
 
-function allowCreate(ip: string, now: number): boolean {
-  const recent = (createLog.get(ip) ?? []).filter((t) => now - t < CREATE_WINDOW_MS);
-  if (recent.length >= CREATE_LIMIT) {
-    createLog.set(ip, recent);
-    return false;
-  }
-  recent.push(now);
-  createLog.set(ip, recent);
-  if (createLog.size > 5000) createLog.clear();
-  return true;
+function allow(kind: keyof typeof LIMITS, ip: string, now: number): boolean {
+  const log = logs[kind];
+  const recent = (log.get(ip) ?? []).filter((t) => now - t < WINDOW_MS);
+  const ok = recent.length < LIMITS[kind];
+  if (ok) recent.push(now);
+  log.set(ip, recent);
+  if (log.size > 5000) log.clear();
+  return ok;
 }
 
 function randomCode(): string {
@@ -35,8 +35,9 @@ function randomCode(): string {
   return [...bytes].map((b) => CODE_ALPHABET[b % CODE_ALPHABET.length]).join("");
 }
 
+// Worker responses don't get public/_headers, so set the relevant ones here.
 const json = (body: unknown, status = 200) =>
-  Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
+  Response.json(body, { status, headers: { "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" } });
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -44,10 +45,10 @@ export default {
     const parts = url.pathname.split("/").filter(Boolean); // ["api", "rooms", code?, "ws"?]
     if (parts[0] !== "api" || parts[1] !== "rooms") return json({ error: "Not found" }, 404);
 
+    const ip = request.headers.get("CF-Connecting-IP") ?? "local";
     if (parts.length === 2) {
       if (request.method !== "POST") return json({ error: "Method not allowed" }, 405);
-      const ip = request.headers.get("CF-Connecting-IP") ?? "local";
-      if (!allowCreate(ip, Date.now())) return json({ error: "Too many rooms created. Try again in a minute." }, 429);
+      if (!allow("create", ip, Date.now())) return json({ error: "Too many rooms created. Try again in a minute." }, 429);
       // Test fixture: a fixed seed makes Echo Round selection reproducible in
       // browser tests. Only honoured when the deployment explicitly enables it
       // (the `test` env in wrangler.jsonc); production ignores ?seed entirely.
@@ -65,6 +66,7 @@ export default {
 
     const code = (parts[2] ?? "").toUpperCase();
     if (!CODE_RE.test(code)) return json({ error: "Invalid room code" }, 400);
+    if (!allow("lookup", ip, Date.now())) return json({ error: "Too many requests. Try again in a minute." }, 429);
     const stub = env.ROOMS.getByName(code);
 
     if (parts.length === 3 && request.method === "GET") return json(await stub.info());
