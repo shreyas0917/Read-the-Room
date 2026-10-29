@@ -1281,3 +1281,337 @@ input {
   outline: 3px solid var(--lime);
   outline-offset: 3px;
 }
+
+/* --- Phase C: feedback, report, a11y helpers --------------------------------- */
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.topbar__sound {
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  font-size: 1rem;
+}
+
+.topbar__sound--push {
+  margin-left: auto;
+}
+
+.topbar__sound[aria-pressed="false"] {
+  opacity: 0.6;
+}
+
+.topbar__sound:focus-visible,
+.topbar__leave:focus-visible,
+.topbar__logo:focus-visible {
+  outline: 3px solid var(--lime);
+  outline-offset: 2px;
+}
+
+.banner__hint {
+  font-weight: 500;
+}
+
+.strip li {
+  position: relative;
+}
+
+.strip__tick {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--lime);
+  color: var(--lime-ink);
+  font-size: 10px;
+  font-weight: 900;
+  display: grid;
+  place-items: center;
+  animation: pop 0.3s var(--ease) both;
+}
+
+.dot--mine {
+  stroke: #fff;
+  stroke-width: 3;
+}
+
+.pop {
+  display: inline-block;
+  animation: pop 0.45s var(--ease) both;
+}
+
+/* Awards */
+.awards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.award {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 14px 16px;
+  border-radius: var(--radius);
+  background: linear-gradient(160deg, #2f1f66, var(--surface));
+  border: 1px solid var(--violet);
+  animation: enter 0.4s var(--ease) both;
+}
+
+.award:nth-child(2) {
+  animation-delay: 80ms;
+}
+
+.award:nth-child(3) {
+  animation-delay: 160ms;
+}
+
+.award:nth-child(4) {
+  animation-delay: 240ms;
+}
+
+.award__icon {
+  font-size: 1.8rem;
+  line-height: 1;
+}
+
+.award p {
+  margin: 0;
+}
+
+.award__title {
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--lime);
+}
+
+.award__who {
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 1.25rem;
+  overflow-wrap: anywhere;
+}
+
+/* Your stats */
+.stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.stats div {
+  background: var(--surface-2);
+  border-radius: var(--radius-sm);
+  padding: 10px;
+}
+
+.stats dt {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.stats dd {
+  margin: 2px 0 0;
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 1.3rem;
+}
+
+/* Room Report */
+.moments {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.moments li {
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  overflow-wrap: anywhere;
+}
+
+.moments b {
+  color: var(--lime);
+  margin-right: 4px;
+}
+
+.recap-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.recap-row {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) 64px;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.recap-row--echo {
+  grid-template-columns: 34px minmax(0, 1fr);
+}
+
+.recap-row__n {
+  font-family: var(--display);
+  font-weight: 800;
+  color: var(--muted);
+}
+
+.recap-row__body p {
+  margin: 0;
+}
+
+.recap-row__q {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.recap-row__meta {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.recap-row__meta b {
+  color: var(--text);
+}
+
+.tag {
+  display: inline-block;
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--lime);
+  border: 1px solid var(--lime);
+  border-radius: 999px;
+  padding: 0 6px;
+  margin-right: 4px;
+  vertical-align: 2px;
+}
+
+.minibars {
+  width: 64px;
+  height: 24px;
+}
+
+.minibars rect {
+  fill: var(--violet);
+}
+
+.report__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.report__preview summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.report__preview pre {
+  margin: 8px 0 0;
+  padding: 12px;
+  background: var(--bg-deep);
+  border-radius: var(--radius-sm);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 0.8rem;
+  max-height: 320px;
+  overflow: auto;
+}
+
+.standings__name .chip__you {
+  font-weight: 400;
+}
+
+/* Narrow phones (iPhone SE, 320 px) */
+@media (max-width: 360px) {
+  .topbar {
+    gap: 8px;
+    padding: 8px 10px;
+  }
+
+  .topbar__code {
+    letter-spacing: 0.08em;
+  }
+
+  .topbar__leave {
+    padding: 6px 10px;
+  }
+
+  .card {
+    padding: 16px;
+  }
+
+  .room-code__share {
+    flex-direction: column;
+    text-align: center;
+  }
+
+  .stats {
+    grid-template-columns: 1fr;
+  }
+
+  .standings li {
+    grid-template-columns: 24px auto minmax(0, 1fr) auto;
+  }
+
+  .standings__meta {
+    display: none;
+  }
+
+  .options--who {
+    grid-template-columns: 1fr;
+  }
+
+  .slider__ends {
+    font-size: 0.72rem;
+  }
+}
+
+/* Grid items default to min-width:auto, which let long names push chips
+   past the card edge on 320 px screens; let them shrink so names ellipsize. */
+.chips {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.chip {
+  min-width: 0;
+}
+
+/* Contrast (WCAG AA): light text on --violet measured 2.9–3.2:1, so text on
+   violet surfaces uses the dark ink instead (5.8:1). */
+.segmented .is-on,
+.rules__n {
+  color: var(--bg);
+}

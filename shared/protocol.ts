@@ -266,7 +266,91 @@ export interface ClientView {
   echo: EchoView | null;
   standings: Standing[] | null;
   rounds: RoundSummary[] | null;
+  /** End-of-game Room Report (final phase only). Public, shareable data only. */
+  report: RoomReport | null;
   endedEarly: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Room Report (shared/report.ts). Built only from data every player already
+// saw during the game: averages, anonymous counts, revealed predictions and
+// points, Echo results, and a consented + revealed Who Said It subject.
+
+export type AwardId = "mind_reader" | "bullseye_king" | "wildcard" | "echo_master" | "poker_face";
+
+export interface Award {
+  id: AwardId;
+  /** Seat order; several on an exact tie. */
+  winners: string[];
+  /** The number behind the award (e.g. average error, count). */
+  value: number;
+}
+
+export interface PlayerStats {
+  playerId: string;
+  /** Mean |prediction − average| over counted regular rounds the player predicted in. */
+  avgError: number | null;
+  /** How many counted regular rounds the player predicted in. */
+  predicted: number;
+  bullseyes: number;
+  wildcards: number;
+  echoPlayed: number;
+  /** Echo picks that were exactly right. */
+  echoCorrect: number;
+  /** Points from Echo picks (excludes the Who Said It subject bonus). */
+  echoPoints: number;
+}
+
+export interface RegularRoundReport {
+  kind: "regular";
+  index: number;
+  prompt: PromptView;
+  voided: boolean;
+  average: number | null;
+  spread: number | null;
+  counts: number[];
+  answerCount: number;
+  /** Closest predictor(s) and their error; null if nobody predicted. */
+  closest: { playerIds: string[]; error: number } | null;
+  bullseyes: number;
+}
+
+export interface EchoRoundReport {
+  kind: "echo";
+  index: number;
+  mode: EchoKind;
+  cancelled: boolean;
+  sourceRound: number | null;
+  prompt: PromptView | null;
+  threshold: number | null;
+  value: number | null;
+  metric: PatternMetric | null;
+  promptOptions: PromptView[] | null;
+  truth: number;
+  /** Who Said It subject — only when consented and actually revealed. */
+  revealedSubject: string | null;
+  /** Guessers (excludes the Who Said It subject). */
+  guessers: number;
+  correct: number;
+}
+
+export type RoundReport = RegularRoundReport | EchoRoundReport;
+
+export type Moment =
+  | { kind: "closest_call"; round: number; playerIds: string[]; error: number; average: number }
+  | { kind: "most_divided"; round: number; prompt: PromptView; spread: number }
+  | { kind: "most_agreed"; round: number; prompt: PromptView; spread: number }
+  | { kind: "best_echo"; round: number; mode: EchoKind; correct: number; guessers: number };
+
+export interface RoomReport {
+  code: string;
+  playedRounds: number;
+  totalRounds: number;
+  endedEarly: boolean;
+  awards: Award[];
+  moments: Moment[];
+  players: PlayerStats[];
+  rounds: RoundReport[];
 }
 
 // ---------------------------------------------------------------------------

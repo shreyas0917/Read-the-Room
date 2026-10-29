@@ -12,6 +12,12 @@ export const FIXTURE_URL = "http://localhost:5197";
 export default defineConfig({
   testDir: "tests/e2e",
   timeout: 120_000,
+  // Each spec drives 2–4 browser contexts against a local Workers runtime;
+  // running spec files in parallel on one machine starved it enough to delay
+  // a phase change past 5 s once. Serial runs + 10 s UI expectations (phases
+  // last 20 s) keep timing out of the results without loosening assertions.
+  workers: 1,
+  expect: { timeout: 10_000 },
   fullyParallel: false,
   reporter: [["list"]],
   use: { baseURL: external ?? "http://localhost:5198", trace: "retain-on-failure" },

@@ -21,7 +21,7 @@ async function predict(page: Page, value: number) {
 }
 
 test("two devices create, join and play a full game", async ({ browser }) => {
-  const host = await browser.newContext({ viewport: { width: 1280, height: 860 } });
+  const host = await browser.newContext({ viewport: { width: 1280, height: 860 }, permissions: ["clipboard-read", "clipboard-write"] });
   const guest = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
   const A = await host.newPage();
   const B = await guest.newPage();
@@ -68,8 +68,8 @@ test("two devices create, join and play a full game", async ({ browser }) => {
   };
 
   for (let round = 1; round <= 6; round++) {
-    await expect(A.getByText(`Round ${round} of 6`)).toBeVisible();
-    await expect(B.getByText(`Round ${round} of 6`)).toBeVisible();
+    await expect(A.locator(".round-head .eyebrow", { hasText: `Round ${round} of 6` })).toBeVisible();
+    await expect(B.locator(".round-head .eyebrow", { hasText: `Round ${round} of 6` })).toBeVisible();
 
     if (round % 3 === 0) {
       const ask = A.locator(".echo-q__ask");
@@ -114,7 +114,7 @@ test("two devices create, join and play a full game", async ({ browser }) => {
       if (round === 2) {
         // Refresh mid-round on the phone: must come back to the same seat.
         await B.reload();
-        await expect(B.getByText(`Round ${round} of 6`)).toBeVisible();
+        await expect(B.locator(".round-head .eyebrow", { hasText: `Round ${round} of 6` })).toBeVisible();
       }
       await answer(B, b);
 
@@ -139,11 +139,42 @@ test("two devices create, join and play a full game", async ({ browser }) => {
 
   await expect(A.locator(".final__winner")).toBeVisible();
   await expect(B.locator(".final__winner")).toHaveText((await A.locator(".final__winner").textContent()) ?? "");
-  const scoreA = await A.locator(".standings li").allTextContents();
-  const scoreB = await B.locator(".standings li").allTextContents();
-  expect(scoreB).toEqual(scoreA);
+  // Same ranks, names and scores on both devices (each marks its own row
+  // "(you)"; poll so the score count-up animation has settled).
+  const standings = (p: typeof A) =>
+    p.locator(".standings li").allTextContents().then((rows) => rows.map((t) => t.replace(" (you)", "")));
+  await expect
+    .poll(async () => {
+      const [a, b] = await Promise.all([standings(A), standings(B)]);
+      return a.length > 0 && JSON.stringify(a) === JSON.stringify(b);
+    })
+    .toBe(true);
+  await expect(A.locator(".standings li.is-you")).toContainText("Ana");
+  await expect(B.locator(".standings li.is-you")).toContainText("Ben");
   await A.screenshot({ path: `${SHOTS}/06-final-desktop.png`, fullPage: true });
   await B.screenshot({ path: `${SHOTS}/06-final-phone.png`, fullPage: true });
+
+  // Room Report: every round listed, copy produces the shareable text.
+  await expect(A.getByRole("heading", { name: "Room Report" })).toBeVisible();
+  await expect(A.locator(".recap-row")).toHaveCount(6);
+  await expect(B.locator(".recap-row")).toHaveCount(6);
+  await expect(A.locator(".recap-row--echo")).toHaveCount(2);
+  await A.getByRole("button", { name: "Copy report" }).click();
+  await expect(A.getByRole("button", { name: "Copied!" })).toBeVisible();
+  const copied = await A.evaluate(() => navigator.clipboard.readText());
+  expect(copied).toContain(`READ THE ROOM · room ${code}`);
+  expect(copied).toMatch(/R3 ⟲ /);
+  await A.locator(".report__preview summary").click();
+  await expect(A.locator(".report__preview pre")).toHaveText(copied);
+  await A.screenshot({ path: `${SHOTS}/12-report-desktop.png`, fullPage: true });
+  await B.screenshot({ path: `${SHOTS}/12-report-phone.png`, fullPage: true });
+
+  // Sound toggle: keyboard-operable, state exposed via aria-pressed.
+  const snd = B.getByRole("button", { name: "Sound effects" });
+  await expect(snd).toHaveAttribute("aria-pressed", "true");
+  await snd.focus();
+  await B.keyboard.press("Enter");
+  await expect(snd).toHaveAttribute("aria-pressed", "false");
 
   await A.getByRole("button", { name: "Play again with this room" }).click();
   await expect(B.getByText(/Waiting for Ana to start/)).toBeVisible();

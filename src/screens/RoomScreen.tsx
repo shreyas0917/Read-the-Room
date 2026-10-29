@@ -1,16 +1,23 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import type { ClientView } from "../../shared/protocol";
 import { useRoom } from "../net/useRoom";
+import { useTween } from "../lib/hooks";
+import { MODE_NAME } from "../lib/reportText";
+import { play, setMuted, useMuted } from "../lib/sound";
 import { loadName, peekPendingJoin, saveName } from "../lib/storage";
 import { navigate } from "../router";
 import { Button } from "../components/ui";
 import { Lobby } from "./Lobby";
-import { AnswerScreen, FinalScreen, PredictScreen, RevealScreen } from "./Game";
+import { AnswerScreen, PredictScreen, RevealScreen } from "./Game";
+import { FinalScreen } from "./Final";
 import { EchoRevealScreen, EchoScreen } from "./Echo";
 
 export function RoomScreen({ code }: { code: string }) {
   const [initialName] = useState(() => peekPendingJoin(code));
   const room = useRoom(code, initialName);
   const { status, view, needsName } = room;
+  useGameCues(view, room.clockOffset);
+  const online = useOnline();
 
   if (status === "not_found") {
     return (
@@ -73,9 +80,11 @@ export function RoomScreen({ code }: { code: string }) {
       <TopBar code={code} onLeave={view ? room.leave : undefined} score={view?.players.find((x) => x.id === view.you?.id)?.score} />
       {status === "reconnecting" && view && (
         <div className="banner" role="status">
-          Connection lost — reconnecting…
+          {online ? "Connection lost: reconnecting…" : "You're offline. We'll reconnect as soon as you're back."}
+          <span className="banner__hint"> Your seat and score are safe.</span>
         </div>
       )}
+      <Announcer view={view} />
       <Toast error={room.lastError} />
       {body}
     </>
@@ -83,13 +92,30 @@ export function RoomScreen({ code }: { code: string }) {
 }
 
 function TopBar({ code, onLeave, score }: { code: string; onLeave?: () => void; score?: number }) {
+  const muted = useMuted();
+  const shown = useTween(score ?? 0);
   return (
     <div className="topbar">
       <button className="topbar__logo" onClick={() => navigate("/")} aria-label="Read the Room home">
         RTR
       </button>
-      <span className="topbar__code">{code}</span>
-      {score !== undefined && <span className="topbar__score">{score} pts</span>}
+      <span className="topbar__code" aria-label={`Room ${code.split("").join(" ")}`}>
+        {code}
+      </span>
+      {score !== undefined && (
+        <span className="topbar__score" aria-label={`${score} points`}>
+          {shown} pts
+        </span>
+      )}
+      <button
+        className={`topbar__sound${score === undefined ? " topbar__sound--push" : ""}`}
+        aria-pressed={!muted}
+        aria-label="Sound effects"
+        title={muted ? "Sound off" : "Sound on"}
+        onClick={() => setMuted(!muted)}
+      >
+        <span aria-hidden="true">{muted ? "🔇" : "🔊"}</span>
+      </button>
       {onLeave && (
         <button
           className="topbar__leave"
@@ -158,5 +184,92 @@ function JoinForm({ code, onJoin, busy, error }: { code: string; onJoin: (n: str
         )}
       </form>
     </main>
+  );
+}
+
+/** Short sound cues on phase changes, your own lock-ins and the last seconds. */
+function useGameCues(view: ClientView | null, offset: number) {
+  const prev = useRef<{ key?: string; mine?: string; players?: number }>({});
+  useEffect(() => {
+    if (!view) return;
+    const p = prev.current;
+    const key = `${view.phase}:${view.round}`;
+    const mine = `${view.mine.answer}|${view.mine.prediction}|${view.mine.echo}`;
+    if (p.key && p.key !== key) {
+      if (view.phase === "reveal" || view.phase === "echo_reveal") play("reveal");
+      else if (view.phase === "echo") play("echo");
+      else if (view.phase === "final") play("win");
+    } else if (p.key === key && p.mine !== undefined && p.mine !== mine) play("lock");
+    if (view.phase === "lobby" && p.players !== undefined && view.players.length > p.players) play("join");
+    prev.current = { key, mine, players: view.players.length };
+  }, [view]);
+
+  // Soft ticks for the last 3 seconds, only while you still have to submit.
+  const live = useRef(view);
+  live.current = view;
+  useEffect(() => {
+    let last = -1;
+    const id = window.setInterval(() => {
+      const v = live.current;
+      if (!v || v.deadline === null || !v.you?.participant) return;
+      const pending =
+        (v.phase === "answer" && v.mine.answer === null) ||
+        (v.phase === "predict" && v.mine.prediction === null) ||
+        (v.phase === "echo" && v.mine.echo === null);
+      const secs = Math.ceil((v.deadline - (Date.now() + offset)) / 1000);
+      if (pending && secs >= 1 && secs <= 3 && secs !== last) play("tick");
+      last = secs;
+    }, 200);
+    return () => window.clearInterval(id);
+  }, [offset]);
+}
+
+function useOnline(): boolean {
+  const [online, setOnline] = useState(() => navigator.onLine);
+  useEffect(() => {
+    const on = () => setOnline(navigator.onLine);
+    window.addEventListener("online", on);
+    window.addEventListener("offline", on);
+    return () => {
+      window.removeEventListener("online", on);
+      window.removeEventListener("offline", on);
+    };
+  }, []);
+  return online;
+}
+
+/** Announces each new phase to screen readers. */
+function Announcer({ view }: { view: ClientView | null }) {
+  let text = "";
+  if (view) {
+    const r = `Round ${view.round} of ${view.totalRounds}.`;
+    switch (view.phase) {
+      case "lobby":
+        text = `Lobby. ${view.players.length} players.`;
+        break;
+      case "answer":
+        text = `${r} ${view.prompt?.text ?? ""} Answer from 1 to 10.`;
+        break;
+      case "predict":
+        text = "Now predict the room's average.";
+        break;
+      case "reveal":
+        text = view.reveal?.voided ? "Not enough answers this round." : `The room said ${view.reveal?.average?.toFixed(1)}.`;
+        break;
+      case "echo":
+        text = `${r} Echo Round: ${view.echo ? MODE_NAME[view.echo.kind] : ""}.`;
+        break;
+      case "echo_reveal":
+        text = "Echo Round results.";
+        break;
+      case "final":
+        text = "Final results and Room Report.";
+        break;
+    }
+  }
+  return (
+    <div className="sr-only" aria-live="polite" aria-atomic="true">
+      {text}
+    </div>
   );
 }

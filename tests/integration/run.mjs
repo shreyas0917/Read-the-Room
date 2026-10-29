@@ -418,6 +418,33 @@ async function fullGame() {
   eq([byId[A.playerId], byId[B.playerId], byId[C.playerId]], totals, "final scores match independent tally");
   eq(A.view.rounds.length, 4, "recap lists the regular rounds");
 
+  // Room Report: identical for everyone, covers every round, awards match an
+  // independent computation from the plan.
+  const rep = A.view.report;
+  assert(rep, "Room Report on the final screen");
+  eq(rep.rounds.map((r) => r.kind), ["regular", "regular", "echo", "regular", "regular", "echo"], "report covers every round");
+  for (const c of [B, C, D]) eq(c.view.report, rep, `${c.label} gets the identical report`);
+  const avgErr = [0, 1, 2].map((i) => {
+    const errs = [1, 2, 4, 5].map((r) => {
+      const valid = plan[r].answers.filter((a) => a !== null);
+      const avg = valid.reduce((a, b) => a + b, 0) / valid.length;
+      return Math.abs(plan[r].predictions[i] - avg);
+    });
+    return errs.reduce((a, b) => a + b, 0) / errs.length;
+  });
+  const best = Math.min(...avgErr);
+  const readers = clients.filter((_, i) => Math.abs(avgErr[i] - best) < 1e-9).map((c) => c.playerId);
+  const mr = rep.awards.find((a) => a.id === "mind_reader");
+  if (readers.length < 3) {
+    eq(mr?.winners, readers, "Mind Reader matches the independent tally");
+    assert(Math.abs(mr.value - best) < 1e-9, "Mind Reader value");
+  } else assert(!mr, "no Mind Reader when everyone ties");
+  for (const st of rep.players) {
+    const i = clients.findIndex((c) => c.playerId === st.playerId);
+    assert(Math.abs(st.avgError - avgErr[i]) < 1e-9, `${clients[i].label} avg error in report`);
+  }
+  eq(rep.players.length, 3, "spectator not in the report");
+
   A.send({ t: "play_again" });
   for (const c of [A, B, C]) await c.until((v) => v.phase === "lobby", "rematch lobby");
   assert(A.view.players.every((p) => p.score === 0), "scores reset on rematch");

@@ -50,6 +50,22 @@ Source of truth: `shared/rules.ts`, `shared/scoring.ts`, `shared/engine.ts`, `sh
 ## Final ranking
 Score desc, then bullseyes desc; players equal on both share a rank (1, 1, 3).
 
+## Awards (Room Report)
+Computed on the server (`shared/report.ts`) from data everyone already saw during the game. Exact ties share an award; an award that **every** player would share is not given (it says nothing). Fixed order:
+
+| Award | Goes to | Eligibility |
+|---|---|---|
+| 🧠 Mind Reader | lowest average prediction error over counted regular rounds | at least 2 counted rounds, and predicted in at least max(2, half of them), so one lucky guess can't win it |
+| 🎯 Bullseye King | most bullseyes | at least 1 |
+| 🃏 Wildcard | most Wildcard bonuses | at least 1 |
+| ⟲ Echo Master | most points from Echo picks (the Who Said It subject bonus doesn't count) | more than 0 |
+| 🤫 Poker Face | the Who Said It subject who fooled the most guessers | at least 1 fooled |
+
+There is deliberately **no award based on what anyone answered** (e.g. "most average"), because that would reveal hidden answers.
+
+## Room Report
+Shown on the final screen and identical for every viewer: standings, awards, highlights (closest call, most divided / most in sync question by spread, sharpest Echo Round), each player's prediction error / bullseyes / Echo record, and a round-by-round recap (averages, anonymous counts, closest predictor, Echo outcomes). **Copy report** / **Share…** produce plain text with names, scores and round results — never answers — and only when a player presses the button; nothing is sent anywhere automatically.
+
 ## Privacy
 - Nobody sees another player's answer, prediction or Echo pick before the reveal — only *that* they submitted.
 - After the reveal, answers appear only as anonymous counts per value. Predictions, Echo picks and points are public.

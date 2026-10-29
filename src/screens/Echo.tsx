@@ -2,7 +2,9 @@ import { useEffect, useState, type ReactNode } from "react";
 import type { ClientView, EchoView, PlayerView } from "../../shared/protocol";
 import { Avatar, Button, DotPlot } from "../components/ui";
 import { useRadioKeys } from "../components/useRadioKeys";
-import { RoundHeader, Spectating, SubmittedStrip, type Props } from "./Game";
+import { RoundHeader, Spectating, SubmittedStrip, useExpired, type Props } from "./Game";
+import { useSendOnce } from "../lib/hooks";
+import { MODE_NAME } from "../lib/reportText";
 
 const METRIC_TEXT = {
   highest: "had the highest average?",
@@ -10,7 +12,6 @@ const METRIC_TEXT = {
   split: "split the room the most?",
 } as const;
 
-const MODE_NAME = { count: "Higher or lower", pattern: "Room pattern", who: "Who said it?" } as const;
 
 function Quote({ text }: { text: string }) {
   return <span className="quote">“{text}”</span>;
@@ -71,10 +72,12 @@ function optionLabel(echo: EchoView, choice: number, byId: Map<string, PlayerVie
 // --- ECHO --------------------------------------------------------------------------
 
 export function EchoScreen(props: Props) {
-  const { view, send } = props;
+  const { view, send, offset } = props;
   const echo = view.echo;
   const [pick, setPick] = useState<number | null>(null);
   useEffect(() => setPick(null), [view.round]);
+  const [busy, fire] = useSendOnce(`${view.round}:${view.mine.echo}`);
+  const expired = useExpired(view.deadline, offset);
   if (!echo) return null;
   const byId = new Map(view.players.map((p) => [p.id, p]));
   const locked = view.mine.echo;
@@ -135,8 +138,12 @@ export function EchoScreen(props: Props) {
       ) : (
         <section className="card">
           <EchoOptions kind={echo.kind} options={options} pick={pick} onPick={setPick} />
-          <Button big disabled={pick === null} onClick={() => pick !== null && send({ t: "echo", choice: pick })}>
-            {pick === null ? "Pick one" : "Lock it in"}
+          <Button
+            big
+            disabled={pick === null || busy || expired}
+            onClick={() => pick !== null && fire(() => send({ t: "echo", choice: pick }))}
+          >
+            {expired ? "Time's up" : pick === null ? "Pick one" : busy ? "Locking in…" : "Lock it in"}
           </Button>
         </section>
       )}

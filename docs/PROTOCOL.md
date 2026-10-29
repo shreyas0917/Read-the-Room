@@ -30,7 +30,12 @@ Unknown types, unknown extra fields, wrong value types and out-of-range values a
 ## State snapshot (`ClientView`)
 Personalised per socket by `shared/redact.ts`: phase (`lobby`, `answer`, `predict`, `reveal`, `echo`, `echo_reveal`, `final`), round, `deadline` + `serverNow` (clients derive a clock offset; the client clock is never trusted), players with `submitted` flags, the viewer's own answer/prediction/Echo pick and consent, the consent *count*, anonymous reveal counts, the Echo question (`echo`; its `result` only in `echo_reveal`), standings and recap.
 
-Persisted state carries a schema version (`v: 2`). Rooms saved by v1 are migrated on load.
+In the `final` phase the view also carries `report` (`RoomReport`: awards, moments, per-player stats, round-by-round recap). It is built from public data only and is identical for every viewer.
+
+Persisted state carries a schema version (`v: 2`). Rooms saved by v1 are migrated on load; `tests/upgrade/v1-to-v2.mjs` verifies this against the real Phase A code.
+
+## Test-only room seeds
+`POST /api/rooms?seed=N` (N up to 9 digits) fixes the room's PRNG seed **only** when the Worker has `ALLOW_TEST_SEED=1`, which exists solely in the `test` and `e2e` Wrangler environments. Production ignores the parameter.
 
 ## Limits
 40 messages / 10 s per socket → `rate_limited`; 80 → socket closed (1008).

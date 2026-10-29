@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import type { ClientMessage, ClientView, PlayerView } from "../../shared/protocol";
 import { DURATIONS } from "../../shared/rules";
-import { Avatar, Button, Countdown, DotPlot, RatingSlider } from "../components/ui";
+import { Avatar, Button, Countdown, DotPlot, RatingSlider, useNow } from "../components/ui";
+import { useSendOnce } from "../lib/hooks";
 
 export interface Props {
   view: ClientView;
@@ -32,14 +33,23 @@ export function RoundHeader({ view, offset, label }: Props & { label: string }) 
   );
 }
 
+/** True once the server deadline has passed (by the server's clock). */
+export function useExpired(deadline: number | null, offset: number): boolean {
+  const now = useNow(250);
+  return deadline !== null && now + offset >= deadline;
+}
+
 export function SubmittedStrip({ view }: { view: ClientView }) {
   const ps = view.players.filter((p) => p.submitted !== null);
+  const done = ps.filter((p) => p.submitted).map((p) => p.name);
+  const label = `${view.submittedCount} of ${view.expectedCount} locked in${done.length ? `: ${done.join(", ")}` : ""}`;
   return (
-    <div className="strip" aria-label={`${view.submittedCount} of ${view.expectedCount} locked in`}>
-      <ul>
+    <div className="strip" role="status" aria-label={label}>
+      <ul aria-hidden="true">
         {ps.map((p) => (
-          <li key={p.id} className={p.submitted ? "is-in" : ""} title={`${p.name}${p.submitted ? " — locked in" : ""}`}>
+          <li key={p.id} className={p.submitted ? "is-in" : ""} title={`${p.name}${p.submitted ? ": locked in" : ""}`}>
             <Avatar index={p.avatar} size={30} dim={!p.connected} />
+            {p.submitted && <span className="strip__tick">✓</span>}
           </li>
         ))}
       </ul>
@@ -66,10 +76,12 @@ export function Spectating() {
 // --- ANSWER --------------------------------------------------------------------
 
 export function AnswerScreen(props: Props) {
-  const { view, send } = props;
+  const { view, send, offset } = props;
   const [value, setValue] = useState(5);
   const locked = view.mine.answer;
   useEffect(() => setValue(5), [view.round]);
+  const [busy, fire] = useSendOnce(`${view.round}:${locked}`);
+  const expired = useExpired(view.deadline, offset);
 
   return (
     <main className="screen game">
@@ -92,8 +104,8 @@ export function AnswerScreen(props: Props) {
             high={view.prompt?.high ?? ""}
             label="Your answer"
           />
-          <Button big onClick={() => send({ t: "answer", value })}>
-            Lock in {value}
+          <Button big disabled={busy || expired} onClick={() => fire(() => send({ t: "answer", value }))}>
+            {expired ? "Time's up" : busy ? "Locking in…" : `Lock in ${value}`}
           </Button>
           {view.you?.onRecord ? (
             <p className="onrecord small">
@@ -112,10 +124,12 @@ export function AnswerScreen(props: Props) {
 // --- PREDICT -------------------------------------------------------------------
 
 export function PredictScreen(props: Props) {
-  const { view, send } = props;
+  const { view, send, offset } = props;
   const [value, setValue] = useState(() => view.mine.answer ?? 5.5);
   const locked = view.mine.prediction;
   useEffect(() => setValue(view.mine.answer ?? 5.5), [view.round, view.mine.answer]);
+  const [busy, fire] = useSendOnce(`${view.round}:${locked}`);
+  const expired = useExpired(view.deadline, offset);
 
   return (
     <main className="screen game">
@@ -139,10 +153,14 @@ export function PredictScreen(props: Props) {
             high={view.prompt?.high ?? ""}
             label="Predicted average"
           />
-          <Button big onClick={() => send({ t: "predict", value })}>
-            Predict {value.toFixed(1)}
+          <Button big disabled={busy || expired} onClick={() => fire(() => send({ t: "predict", value }))}>
+            {expired ? "Time's up" : busy ? "Locking in…" : `Predict ${value.toFixed(1)}`}
           </Button>
-          {view.mine.answer !== null && <p className="muted small center">You answered {view.mine.answer}.</p>}
+          {view.mine.answer !== null ? (
+            <p className="muted small center">You answered {view.mine.answer}.</p>
+          ) : (
+            <p className="muted small center">You missed the answer, but you can still predict.</p>
+          )}
         </section>
       )}
       <SubmittedStrip view={view} />
@@ -177,6 +195,10 @@ export function RevealScreen(props: Props) {
               The room said <b>{rv.average?.toFixed(1)}</b>
             </p>
             <DotPlot counts={rv.counts} average={rv.average} yourAnswer={rv.yourAnswer} />
+            <p className="muted small center">
+              {rv.answerCount} anonymous answers
+              {rv.yourAnswer !== null ? " · yours is the ringed lime dot" : view.you?.participant ? " · you didn't answer in time" : ""}
+            </p>
             {wildcard && (
               <p className="wildcard">
                 <Avatar index={wildcard.avatar} size={28} /> <b>{wildcard.name}</b> is the Wildcard (+25)
@@ -195,8 +217,9 @@ export function RevealScreen(props: Props) {
                 <span className="scores__name">{r.player.name}</span>
                 <span className="scores__guess">{r.value === null ? "no guess" : `guessed ${r.value.toFixed(1)}`}</span>
                 <span className="scores__pts">
-                  +{r.score.total}
+                  <span className="pop">+{r.score.total}</span>
                   {r.score.bullseye > 0 && <em className="badge">bullseye</em>}
+                  {r.score.wildcard > 0 && <em className="badge badge--lime">wildcard</em>}
                 </span>
               </li>
             ))}
@@ -210,65 +233,6 @@ export function RevealScreen(props: Props) {
         </Button>
       ) : (
         <p className="muted small center">Next round starts automatically.</p>
-      )}
-    </main>
-  );
-}
-
-// --- FINAL ---------------------------------------------------------------------
-
-export function FinalScreen({ view, send }: Props) {
-  const byId = new Map(view.players.map((p) => [p.id, p]));
-  const standings = view.standings ?? [];
-  const winners = standings.filter((s) => s.rank === 1).map((s) => byId.get(s.playerId)?.name ?? "?");
-
-  return (
-    <main className="screen final">
-      <header className="final__head">
-        <p className="eyebrow">{view.endedEarly ? "Game ended early" : "Final results"}</p>
-        <h1 className="final__winner">{winners.length > 1 ? `${winners.join(" & ")} tie!` : `${winners[0] ?? "Nobody"} wins!`}</h1>
-      </header>
-
-      <section className="card">
-        <ol className="standings">
-          {standings.map((s) => {
-            const p = byId.get(s.playerId);
-            if (!p) return null;
-            return (
-              <li key={s.playerId} className={`${s.rank === 1 ? "is-first" : ""}${p.id === view.you?.id ? " is-you" : ""}`}>
-                <span className="standings__rank">{s.rank}</span>
-                <Avatar index={p.avatar} size={40} />
-                <span className="standings__name">{p.name}</span>
-                <span className="standings__meta muted small">
-                  {s.bullseyes} bullseye{s.bullseyes === 1 ? "" : "s"}
-                </span>
-                <span className="standings__score">{s.score}</span>
-              </li>
-            );
-          })}
-        </ol>
-      </section>
-
-      {view.rounds && view.rounds.length > 0 && (
-        <section className="card">
-          <h2 className="h2">How the room answered</h2>
-          <ul className="recap">
-            {view.rounds.map((r) => (
-              <li key={r.index}>
-                <span className="recap__q">{r.prompt.text}</span>
-                <span className="recap__avg">{r.voided || r.average === null ? "—" : r.average.toFixed(1)}</span>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-
-      {view.you?.isHost ? (
-        <Button big onClick={() => send({ t: "play_again" })}>
-          Play again with this room
-        </Button>
-      ) : (
-        <p className="muted small center">Waiting for the host to start a rematch…</p>
       )}
     </main>
   );

@@ -85,6 +85,15 @@ Never sent: the correct answer during ECHO, the `who` subject during ECHO (excep
 | Fewer than 2 seated players | Game ends early (unchanged) |
 | Rooms saved by the previous version | Migrated on load (missing fields get safe defaults) |
 
+## Accessibility
+- Options are a WAI-ARIA radio group labelled by the question: one Tab stop, arrow keys / Home / End move focus and selection (skipping your own disabled option in Who Said It), Enter / Space select, Tab reaches **Lock it in**. The selected option also shows a ✓, so selection isn't colour-only.
+- Each phase change is announced through a polite live region.
+
+## Testing
+- Unit: `tests/unit/echo.test.ts` (generation, eligibility, scoring, privacy, determinism, migration).
+- Integration: every mode over real WebSockets, mid-Echo reconnect, runtime restart mid-Echo.
+- Browser: `tests/e2e/who-said-it.fixture.spec.ts` plays Who Said It with four browser contexts. It finds a room seed that yields Who Said It in round 3 by replaying the planned game through the shared engine (mode selection depends only on seed, seats and history), then creates the room with that seed on a local `e2e`-env server. It checks consent privacy, the subject-only instruction, the decoy pick, keyboard-only selection with a visible focus ring, refresh and offline reconnects, scoring, and that no WebSocket frame ever carried the subject or the answer before the reveal.
+
 ## Privacy boundaries — honestly
 
 - "Anonymous" means the game never **labels** an answer with a name, except Wildcard (announced in the rules) and opted-in Who Said It.

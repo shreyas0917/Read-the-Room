@@ -33,6 +33,7 @@ import { ANSWER_MAX } from "./rules";
 import { playersBySeat } from "./engine";
 import { answersOf } from "./echo";
 import { mean, rankPlayers, stdDev, ZERO_SCORE } from "./scoring";
+import { buildReport } from "./report";
 
 function promptView(id: string): PromptView {
   const p = getPrompt(id);
@@ -179,6 +180,7 @@ export function viewFor(s: RoomState, viewerId: string | null, now: number): Cli
     echo: r && isEcho ? echoView(s, r, viewer?.id ?? null) : null,
     standings: s.phase === "final" ? rankPlayers(playersBySeat(s).filter((p) => p.role === "player")) : null,
     rounds,
+    report: s.phase === "final" ? buildReport(s) : null,
     endedEarly: s.endedEarly,
   };
 }

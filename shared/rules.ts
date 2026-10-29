@@ -56,3 +56,7 @@ export const WHO_FOOLED_BONUS = 25;
 export const WHO_FOOLED_MAX = 100;
 /** Upper bound for any echo choice on the wire (options are at most MAX_PLAYERS). */
 export const ECHO_CHOICE_MAX = 16;
+
+// Room Report awards (docs/RULES.md#awards)
+/** Mind Reader needs at least this many predictions (and at least half the counted rounds). */
+export const MIND_READER_MIN_PREDICTIONS = 2;

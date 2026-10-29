@@ -143,7 +143,7 @@ test("Who said it? with four devices: consent, privacy, decoy, keyboard, reconne
 
   // --- Rounds 1 and 2 --------------------------------------------------------------
   for (const round of [1, 2]) {
-    for (const p of players) await expect(p.page.getByText(`Round ${round} of 6`)).toBeVisible();
+    for (const p of players) await expect(p.page.locator(".round-head .eyebrow", { hasText: `Round ${round} of 6` })).toBeVisible();
     await expect(ben.page.getByText("On the record.")).toBeVisible();
     await expect(dev.page.getByText("Secret & anonymous.")).toBeVisible();
     for (let i = 0; i < 4; i++) await answer(players[i]!.page, ANSWERS[round]![i]!);
@@ -154,7 +154,7 @@ test("Who said it? with four devices: consent, privacy, decoy, keyboard, reconne
 
   // --- Round 3: Who said it? ---------------------------------------------------------
   for (const p of players) {
-    await expect(p.page.getByText("Round 3 of 6")).toBeVisible();
+    await expect(p.page.locator(".round-head .eyebrow", { hasText: "Round 3 of 6" })).toBeVisible();
     await expect(p.page.locator(".phase-label")).toHaveText("Who said it?");
   }
   const ask = await ana.page.locator("#echo-ask").textContent();

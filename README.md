@@ -2,6 +2,8 @@
 
 A real-time party game for 2–8 phones. Everyone answers a playful question from 1 to 10 in secret, then predicts the room's average. Closest guess wins the round.
 
+The game ends with awards and a shareable **Room Report** (highlights and a round-by-round recap, built only from what everyone already saw). Sound effects are synthesized in the browser and can be muted from the top bar.
+
 Every third round is an **Echo Round**, a question built from what the room already answered: *how many of you went above 6?*, *which question split the room most?*, or (only for players who opted in) *who said 10?* See [docs/ECHO_ROUNDS.md](docs/ECHO_ROUNDS.md).
 
 - **Frontend:** React 19 + TypeScript + Vite 8
@@ -26,7 +28,7 @@ Open the URL in a normal window and a private window (or on your phone on the sa
 | `npm run preview` | Serve the production build in workerd |
 | `npm test` | Unit tests (engine, scoring, Echo Rounds, redaction, protocol) |
 | `npm run test:integration` | Starts the app (2× faster timers via `CLOUDFLARE_ENV=test`) and plays real multi-client games over WebSockets, including every Echo mode and full runtime restarts mid-game and mid-Echo |
-| `npm run test:e2e` | Playwright: a full 2-device game against the production build, plus a 4-device "Who said it?" game (consent, privacy, keyboard, reconnects) against a local seedable fixture server |
+| `npm run test:e2e` | Playwright: a full 2-device game + Room Report against the production build, a 320 px no-overflow run with max-length names, and a 4-device "Who said it?" game (consent, privacy, keyboard, reconnects) against a local seedable fixture server |
 | `node tests/upgrade/v1-to-v2.mjs <oldCommit> <scratchDir>` | Real storage-upgrade test: runs the old commit in a temporary worktree, saves a mid-game room, hands its Durable Object storage to `HEAD`, resumes every player and plays on |
 | `npm run deploy` | Build and deploy to Cloudflare |
 
@@ -48,6 +50,7 @@ shared/     pure, deterministic, unit-tested — no I/O
   engine.ts     (state, action, now) → state | error   — the state machine
   echo.ts       deterministic Echo Round generation
   scoring.ts    round + Echo scoring, ranking
+  report.ts     end-of-game awards, highlights and recap (public data only)
   redact.ts     per-player projection: the only way state leaves the server
   prompts.ts    question bank
   rng.ts        seeded PRNG
