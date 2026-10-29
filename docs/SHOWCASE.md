@@ -8,8 +8,8 @@ Drafts for presenting Read the Room. Nothing here is published or submitted auto
 
 **Title:** Read the Room
 
-**Description (422 / 500 characters):**
-> Read the Room is a party game for 2–8 phones where the answer key is your friends. Answer playful 1–10 questions in secret, predict the room's average, and score by reading people. Every third round is an Echo Round built from what the room already said, including an opt-in “Who said it?”. The hard part was real-time sync and privacy: hidden answers never leave the server. Next: custom question packs and host controls.
+**Description (436 / 500 characters):**
+> Read the Room is a party game for 2–8 phones where the answer key is your friends. Answer playful 1–10 questions in secret, predict the room's average, and score by reading people. Every third round is an Echo Round built from what the room already said, including an opt-in “Who said it?”. The hard part was real-time sync and privacy: no one's hidden answer ever reaches another player. Next: custom question packs and host controls.
 
 **Cover image:** `showcase/cover.png` (1800 × 1200, 3:2), rendered from `showcase/cover.html`; see the brief below.
 
@@ -44,6 +44,7 @@ Tip: for a tight recording, pick 6 rounds and have the host tap **Next round** o
 - **Visual:** midnight-purple background (`#140a2e`, soft glow from the top), electric lime (`#c6ff3d`) accents, violet (`#8f7cff`) secondary. Show 2–3 phone frames with real screens: a reveal dot plot, an Echo Round question, the Room Report. A row of dots with a dashed lime "average" line is the signature motif.
 - **Avoid:** tiny UI text as the main message, stock photos, gradients that muddy contrast, other brands' logos.
 - **Fonts:** Bricolage Grotesque (display) + Inter (body), the same as the game.
+- **Design-check note:** the `impeccable` detector flags Inter as an "overused font". That finding is suppressed **only for `showcase/cover.html`** in `.impeccable/config.json`, because the cover deliberately matches the game's typography. Any other file using Inter is still flagged.
 
 ## Architecture summary (portfolio / interview)
 

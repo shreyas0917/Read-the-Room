@@ -63,6 +63,7 @@ Aim for at least: one iPhone (Safari), one Android (Chrome), one laptop (Chrome 
 | 5.2 | Lock the phone for 30 s, unlock | Brief "reconnecting" banner, then back in the game | |
 | 5.3 | Switch phone between Wi-Fi and mobile data mid-round | Reconnects by itself | |
 | 5.4 | Airplane mode for 10 s | "You're offline…" banner; reconnects after | |
+| 5.4b | Join on a slow connection (a weak real signal, or Chrome DevTools → Network → "Slow 3G") | Joins on the first try; never "Someone already has that name" for your own name (see READINESS_REVIEW #4) | |
 | 5.5 | One player doesn't answer | Round moves on when the timer ends; "Time's up" on their screen | |
 | 5.6 | Nobody answers | Round voided ("Not enough answers"), game continues | |
 | 5.7 | Host closes their tab | After ~20 s someone else becomes host | |
@@ -85,6 +86,22 @@ Aim for at least: one iPhone (Safari), one Android (Chrome), one laptop (Chrome 
 | 7.1 | **Copy report**, paste into a notes app | Winner, standings, awards, highlights, every round; no answers | |
 | 7.2 | Phone: **Share…** | System share sheet with the same text | |
 | 7.3 | **Preview the text** | Matches what was copied | |
+
+## 8. Error and edge states
+| # | Do this | Expect | Result / notes |
+|---|---|---|---|
+| 8.1 | Open an invite link for a room that has closed (everyone left > 10 min ago), or a made-up code like `/r/QQQQ` | "Room not found" with a way back to the start | |
+| 8.2 | Open the same seat in two tabs on one device | Older tab: "Open in another tab" with **Use it here instead**; the game keeps working in the newer tab | |
+| 8.3 | Tap **Leave**, then **Cancel** in the confirm dialog | Nothing happens; tap Leave and confirm → "You left the room" | |
+| 8.4 | Double-tap **Lock in** quickly | One submission; the button shows "Locking in…" then the locked state | |
+| 8.5 | Let a phase run out while on the answer screen without locking in | Button turns to "Time's up"; round moves on | |
+| 8.6 | Host leaves mid-game (Leave) with 3+ players | Someone else becomes host; game continues | |
+| 8.7 | Everyone but one player leaves mid-game | Game ends early; final screen says "Game ended early" | |
+
+## 9. After deploying a new version (only when a release adds a new screen or phase)
+| # | Do this | Expect | Result / notes |
+|---|---|---|---|
+| 9.1 | Keep a tab open across a deploy, then keep playing | Banner "A new version of the game is live — Refresh"; Refresh keeps your seat and score | |
 
 ## Issues found
 | # | Severity (blocker / major / minor) | Device + browser | Steps | Expected | Actual |
